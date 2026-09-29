@@ -5,4 +5,4 @@ Wei Ting Wang \
 Myoungji Cho \
 Alexander King Perocho \
 Sachin Singh \
-Muhammad Haadi Khawaja \
+Muhammad Haadi Khawaja
