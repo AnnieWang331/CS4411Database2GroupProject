@@ -1,0 +1,9 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local environment / credentials
+.env
+.env.*
+.aws/
