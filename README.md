@@ -45,6 +45,95 @@ ahead of time, which makes it a good fit for DynamoDB's data modelling. The proj
 
 Final deadline: **December 6, 2026**
 
+## Running the project locally
+
+You can run everything on your own computer using **DynamoDB Local**, a free version of DynamoDB
+from AWS that runs on your machine. You don't need an AWS account for any of the steps below.
+
+### What you need
+
+- Python 3.12 or newer
+- Docker or Podman (we use it to run DynamoDB Local)
+
+### 1. Install the Python packages
+
+Make a virtual environment and turn it on. For example, run `python -m venv .venv` and then
+`source .venv/bin/activate` (a pyenv virtualenv works too). Then install the packages:
+
+```sh
+pip install -r requirements-dev.txt
+```
+
+This installs boto3 (the AWS library for Python) plus pytest and ruff, which we use for testing
+and linting.
+
+### 2. Start DynamoDB Local
+
+```sh
+docker run -d --rm --name dynamodb-local -p 8000:8000 amazon/dynamodb-local \
+  -jar DynamoDBLocal.jar -inMemory -sharedDb
+```
+
+If you use Podman, change `docker` to `podman` and use `docker.io/amazon/dynamodb-local` as the
+image name. Because of `-inMemory`, all the data disappears when the container stops, which is
+handy for testing. To stop it, run `docker stop dynamodb-local`.
+
+### 3. Create the table and add demo data
+
+```sh
+export DYNAMODB_ENDPOINT_URL=http://localhost:8000
+python scripts/create_table.py
+python scripts/seed.py
+```
+
+The first line points our scripts at DynamoDB Local instead of AWS.
+
+`create_table.py` creates our `BrainstormBoard` table. It also sets up a secondary index (GSI1)
+for listing an instructor's rooms, turns on DynamoDB Streams (which we'll use for live updates),
+and turns on Time to Live (TTL) so old rooms delete themselves. If you want to start over, add
+`--recreate` to delete the local table and make it again.
+
+By default the table uses on-demand billing, where AWS charges per request. If you add
+`--provisioned`, it reserves 20 read and 20 write units for the table and 5 of each for the index
+instead. That stays inside the 25 units AWS gives you for free.
+
+`seed.py` makes a demo room with a few students, ideas, votes and comments, and prints the board
+so you can see it worked.
+
+### 4. Run the tests
+
+```sh
+pytest
+```
+
+The tests make their own tables in DynamoDB Local and delete them afterwards. If DynamoDB Local
+isn't running, the tests that need it are skipped instead of failing.
+
+### Settings
+
+Our code reads these environment variables:
+
+- `DYNAMODB_ENDPOINT_URL`: where DynamoDB is. Set it to `http://localhost:8000` for DynamoDB
+  Local. Leave it unset to use real AWS.
+- `BRAINSTORM_TABLE`: the table name. The default is `BrainstormBoard`.
+- `AWS_PROFILE` and `AWS_REGION`: which AWS account and region to use. These only matter when
+  you're using real AWS.
+
+To check that your AWS profile can reach DynamoDB, run `python scripts/check_aws.py`.
+
+### Where things are
+
+```text
+docs/data-model.md     How we store the data in DynamoDB, and why
+src/brainstorm/        The Python code that talks to DynamoDB
+  schema.py            Creates the table
+  rooms.py             Creating, joining, closing and listing rooms
+  ideas.py             Posting ideas, loading the board, voting, commenting
+  transactions.py      Writes that change several items at once, with retries
+scripts/               Scripts to create the table, add demo data and check AWS access
+tests/                 Our tests (they run against DynamoDB Local)
+```
+
 ### Resources
 
 - [DynamoDB User Guide](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Introduction.html)
