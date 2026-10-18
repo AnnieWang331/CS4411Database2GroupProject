@@ -109,6 +109,23 @@ pytest
 The tests make their own tables in DynamoDB Local and delete them afterwards. If DynamoDB Local
 isn't running, the tests that need it are skipped instead of failing.
 
+### 5. Run the API
+
+```sh
+python scripts/serve_local.py
+```
+
+This starts our HTTP API at `http://127.0.0.1:3000` (use `--port` to change it), using the table
+from step 3. On AWS the same code runs as a Lambda function behind API Gateway. The local server
+just turns each request into the event Lambda would get. You can try it with curl:
+
+```sh
+curl -X POST -H 'X-User-Id: prof' -d '{"topic": "Indexing"}' http://127.0.0.1:3000/rooms
+curl http://127.0.0.1:3000/codes/<code from the reply>
+```
+
+Every route and error code is listed in [docs/api.md](docs/api.md).
+
 ### Settings
 
 Our code reads these environment variables:
@@ -116,6 +133,8 @@ Our code reads these environment variables:
 - `DYNAMODB_ENDPOINT_URL`: where DynamoDB is. Set it to `http://localhost:8000` for DynamoDB
   Local. Leave it unset to use real AWS.
 - `BRAINSTORM_TABLE`: the table name. The default is `BrainstormBoard`.
+- `CORS_ALLOW_ORIGIN`: which website is allowed to call the API from a browser. The default is
+  `*` (any site).
 - `AWS_PROFILE` and `AWS_REGION`: which AWS account and region to use. These only matter when
   you're using real AWS.
 
@@ -125,12 +144,15 @@ To check that your AWS profile can reach DynamoDB, run `python scripts/check_aws
 
 ```text
 docs/data-model.md     How we store the data in DynamoDB, and why
+docs/api.md            The HTTP API: routes, errors and who can call what
 src/brainstorm/        The Python code that talks to DynamoDB
   schema.py            Creates the table
   rooms.py             Creating, joining, closing and listing rooms
   ideas.py             Posting ideas, loading the board, voting, commenting
   transactions.py      Writes that change several items at once, with retries
-scripts/               Scripts to create the table, add demo data and check AWS access
+  api.py               The HTTP API (one Lambda handler for every route)
+scripts/               Scripts to create the table, add demo data, run the API locally and
+                       check AWS access
 tests/                 Our tests (they run against DynamoDB Local)
 ```
 
