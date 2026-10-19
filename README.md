@@ -109,6 +109,9 @@ pytest
 The tests make their own tables in DynamoDB Local and delete them afterwards. If DynamoDB Local
 isn't running, the tests that need it are skipped instead of failing.
 
+Lint: run `ruff format --check .` and `ruff check .` before you push. The settings (like our
+100-character line length) are in `pyproject.toml`.
+
 ### 5. Run the API
 
 ```sh
