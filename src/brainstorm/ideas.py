@@ -18,7 +18,14 @@ from brainstorm.errors import (
     RoomClosedError,
     RoomNotFoundError,
 )
-from brainstorm.rooms import get_room, is_live, open_room_check, query_all, require_text
+from brainstorm.rooms import (
+    MAX_NAME_LENGTH,
+    get_room,
+    is_live,
+    open_room_check,
+    query_all,
+    require_text,
+)
 from brainstorm.transactions import TransactionCanceledError, transact_write
 
 MAX_IDEA_LENGTH = 500
@@ -40,6 +47,7 @@ def post_idea(table, room_id: str, author_id: str, author_name: str, body: str) 
         RoomNotFoundError: The room doesn't exist or has expired.
         RoomClosedError: The room is closed (checked inside the transaction).
     """
+    author_name = require_text(author_name, "display_name", MAX_NAME_LENGTH)
     body = require_text(body, "body", MAX_IDEA_LENGTH)
     room = get_room(table, room_id)
     created_at, idea_id = keys.iso(keys.utc_now()), keys.new_id()
@@ -238,6 +246,7 @@ def add_comment(
         RoomClosedError: The room is closed.
         IdeaNotFoundError: No such idea in this room.
     """
+    author_name = require_text(author_name, "display_name", MAX_NAME_LENGTH)
     idea_id = idea_id_from_sk(idea_sk)
     body = require_text(body, "body", MAX_COMMENT_LENGTH)
     room = get_room(table, room_id)

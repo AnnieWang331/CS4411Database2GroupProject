@@ -32,6 +32,19 @@ def test_post_idea_rejects_long_body(table, room):
         ideas.post_idea(table, room["room_id"], "stu-1", "Roah", "x" * 501)
 
 
+@pytest.mark.parametrize("name", ["x" * 51, "   "])
+def test_post_idea_rejects_bad_display_name(table, room, name):
+    with pytest.raises(InvalidInputError, match="display_name must be 1-50 characters"):
+        ideas.post_idea(table, room["room_id"], "stu-1", name, "Use a GSI")
+
+
+@pytest.mark.parametrize("name", ["x" * 51, "   "])
+def test_add_comment_rejects_bad_display_name(table, room, name):
+    idea = ideas.post_idea(table, room["room_id"], "stu-1", "Roah", "Use a GSI")
+    with pytest.raises(InvalidInputError, match="display_name must be 1-50 characters"):
+        ideas.add_comment(table, room["room_id"], idea["SK"], "stu-2", name, "Nice")
+
+
 def test_no_posts_to_closed_room(table, room):
     rooms.close_room(table, room["room_id"], "prof")
     with pytest.raises(RoomClosedError):
