@@ -44,17 +44,17 @@ MAX_PAGE_SIZE = 100
 # only thing needed to close a room and must not be handed out.
 HIDDEN_KEYS = ("PK", "SK", "GSI1PK", "GSI1SK", "owner_id")
 
-# Data-layer error -> (HTTP status, error code), most specific first.
-ERROR_STATUS: list[tuple[type[BrainstormError], int, str]] = [
-    (InvalidInputError, 400, "invalid_input"),
-    (NotRoomOwnerError, 403, "not_room_owner"),
-    (RoomNotFoundError, 404, "room_not_found"),
-    (IdeaNotFoundError, 404, "idea_not_found"),
-    (RoomClosedError, 409, "room_closed"),
-    (AlreadyVotedError, 409, "already_voted"),
-    (NotVotedError, 409, "not_voted"),
-    (CodeUnavailableError, 503, "code_unavailable"),
-]
+# Data-layer error -> (HTTP status, error code); test_api checks every subclass is listed.
+ERROR_STATUS: dict[type[BrainstormError], tuple[int, str]] = {
+    InvalidInputError: (400, "invalid_input"),
+    NotRoomOwnerError: (403, "not_room_owner"),
+    RoomNotFoundError: (404, "room_not_found"),
+    IdeaNotFoundError: (404, "idea_not_found"),
+    RoomClosedError: (409, "room_closed"),
+    AlreadyVotedError: (409, "already_voted"),
+    NotVotedError: (409, "not_voted"),
+    CodeUnavailableError: (503, "code_unavailable"),
+}
 # DynamoDB errors that mean "too busy right now" rather than a bug.
 THROTTLING_CODES = {"ProvisionedThroughputExceededException", "ThrottlingException"}
 
@@ -72,8 +72,6 @@ class ApiError(Exception):
 class Request:
     """The parts of an HTTP request that route handlers use."""
 
-    method: str
-    path: str
     headers: dict[str, str] = field(default_factory=dict)
     query: dict[str, str] = field(default_factory=dict)
     body: dict[str, Any] = field(default_factory=dict)
@@ -284,8 +282,6 @@ def _json_default(value: Any) -> Any:
     """Encode the ``Decimal`` numbers boto3 returns as JSON ints or floats."""
     if isinstance(value, Decimal):
         return int(value) if value == value.to_integral_value() else float(value)
-    if isinstance(value, set):
-        return sorted(value)
     raise TypeError(f"can't encode {type(value).__name__} as JSON")
 
 
@@ -356,8 +352,6 @@ def handle(table, event: dict[str, Any]) -> dict[str, Any]:
 
     try:
         req = Request(
-            method=method,
-            path=path,
             headers={k.lower(): v for k, v in (event.get("headers") or {}).items()},
             query=event.get("queryStringParameters") or {},
             body=parse_body(event),
@@ -368,10 +362,8 @@ def handle(table, event: dict[str, Any]) -> dict[str, Any]:
     except ApiError as err:
         return error(err.status, err.code, str(err))
     except BrainstormError as err:
-        for error_type, status, code in ERROR_STATUS:
-            if isinstance(err, error_type):
-                return error(status, code, str(err) or code)
-        raise
+        status, code = ERROR_STATUS[type(err)]
+        return error(status, code, str(err) or code)
     except TransactionCanceledError as err:
         if RETRYABLE_CODES & set(err.codes):
             # transact_write ran out of retries on conflicts or throttling.

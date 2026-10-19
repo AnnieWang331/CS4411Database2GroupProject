@@ -32,7 +32,7 @@ class TransactionCanceledError(Exception):
         return self.codes[index] == "ConditionalCheckFailed"
 
 
-def transact_write(table, items: list[dict[str, Any]], token: str | None = None) -> None:
+def transact_write(table, items: list[dict[str, Any]]) -> None:
     """Run ``TransactWriteItems`` on ``table``, retrying conflicts and throttling with backoff.
 
     Each item is ``{"Put"|"Update"|"Delete"|"ConditionCheck": {...}}`` without ``TableName``;
@@ -45,7 +45,7 @@ def transact_write(table, items: list[dict[str, Any]], token: str | None = None)
     for item in items:
         for action in item.values():
             action["TableName"] = table.name
-    token = token or uuid.uuid4().hex
+    token = uuid.uuid4().hex
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:

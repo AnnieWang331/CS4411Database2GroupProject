@@ -278,6 +278,10 @@ def test_unexpected_error_is_500_without_details(monkeypatch):
     assert "secret" not in resp["body"]
 
 
+def test_every_brainstorm_error_has_a_status():
+    assert set(api.BrainstormError.__subclasses__()) <= api.ERROR_STATUS.keys()
+
+
 def test_handle_turns_unexpected_errors_into_500(monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("secret detail")
