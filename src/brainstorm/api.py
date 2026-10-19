@@ -387,6 +387,9 @@ def handle(table, event: dict[str, Any]) -> dict[str, Any]:
             return error(503, "busy", "the database is busy, please try again")
         logger.exception("DynamoDB error on %s %s", method, path)
         return error(500, "internal_error", "something went wrong")
+    except Exception:
+        logger.exception("unhandled error on %s %s", method, path)
+        return error(500, "internal_error", "something went wrong")
 
 
 _table = None
@@ -397,8 +400,4 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     global _table
     if _table is None:
         _table = db.table()
-    try:
-        return handle(_table, event)
-    except Exception:
-        logger.exception("unhandled error")
-        return error(500, "internal_error", "something went wrong")
+    return handle(_table, event)

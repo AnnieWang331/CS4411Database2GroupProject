@@ -276,3 +276,13 @@ def test_unexpected_error_is_500_without_details(monkeypatch):
     resp = api.lambda_handler(event, None)
     assert resp["statusCode"] == 500
     assert "secret" not in resp["body"]
+
+
+def test_handle_turns_unexpected_errors_into_500(monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("secret detail")
+
+    monkeypatch.setattr(api.rooms, "list_owner_rooms", boom)
+    status, body = call(object(), "GET", "/my-rooms")
+    assert (status, body["error"]) == (500, "internal_error")
+    assert "secret" not in body["message"]

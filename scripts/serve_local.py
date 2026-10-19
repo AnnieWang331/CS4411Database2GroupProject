@@ -45,11 +45,7 @@ def make_handler(table) -> type[BaseHTTPRequestHandler]:
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else b""
             event = to_event(self.command, self.path, dict(self.headers.items()), body)
-            try:
-                resp = api.handle(table, event)
-            except Exception:
-                api.logger.exception("unhandled error")
-                resp = api.error(500, "internal_error", "something went wrong")
+            resp = api.handle(table, event)
             payload = resp["body"].encode()
             self.send_response(resp["statusCode"])
             for name, value in resp["headers"].items():
