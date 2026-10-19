@@ -149,6 +149,9 @@ To check that your AWS profile can reach DynamoDB, run `python scripts/check_aws
 docs/data-model.md     How we store the data in DynamoDB, and why
 docs/api.md            The HTTP API: routes, errors and who can call what
 src/brainstorm/        The Python code that talks to DynamoDB
+  db.py                Connects to the table (DynamoDB Local or AWS)
+  keys.py              Builds the PK/SK key values, ids, join codes and timestamps
+  errors.py            The errors our code raises (room closed, already voted, ...)
   schema.py            Creates the table
   rooms.py             Creating, joining, closing and listing rooms
   ideas.py             Posting ideas, loading the board, voting, commenting

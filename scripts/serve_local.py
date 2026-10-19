@@ -7,6 +7,7 @@ get and passed to ``brainstorm.api.handle``, so local runs and AWS share one cod
 """
 
 import argparse
+import logging
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -66,6 +67,7 @@ def main() -> int:
     parser.add_argument("--table", default=db.table_name(), help="table name")
     parser.add_argument("--port", type=int, default=3000, help="port to listen on")
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO)
 
     # One request at a time, like a Lambda container; boto3 resources aren't thread-safe.
     server = HTTPServer(
