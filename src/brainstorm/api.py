@@ -98,11 +98,6 @@ class Request:
             raise InvalidInputError(f"{name} is required")
         return value
 
-    @property
-    def display_name(self) -> str:
-        """Return the ``display_name`` field, checked the same way joining a room checks it."""
-        return rooms.require_text(self.text("display_name"), "display_name", rooms.MAX_NAME_LENGTH)
-
 
 Handler = Callable[[Any, Request], tuple[int, Any]]
 ROUTES: list[tuple[str, re.Pattern[str], Handler]] = []
@@ -201,7 +196,9 @@ def load_board(table, req: Request) -> tuple[int, Any]:
 @route("POST", "/rooms/{room_id}/join")
 def join_room(table, req: Request) -> tuple[int, Any]:
     """Join a room or update the caller's display name (P4)."""
-    participant = rooms.join_room(table, req.params["room_id"], req.user_id, req.display_name)
+    participant = rooms.join_room(
+        table, req.params["room_id"], req.user_id, req.text("display_name")
+    )
     return 200, public(participant)
 
 
@@ -223,7 +220,7 @@ def close_room(table, req: Request) -> tuple[int, Any]:
 def post_idea(table, req: Request) -> tuple[int, Any]:
     """Post an idea to an open room (P6)."""
     idea = ideas.post_idea(
-        table, req.params["room_id"], req.user_id, req.display_name, req.text("body")
+        table, req.params["room_id"], req.user_id, req.text("display_name"), req.text("body")
     )
     return 201, public(idea)
 
@@ -267,7 +264,7 @@ def add_comment(table, req: Request) -> tuple[int, Any]:
         req.params["room_id"],
         req.params["idea_sk"],
         req.user_id,
-        req.display_name,
+        req.text("display_name"),
         req.text("body"),
     )
     return 201, public(comment)
