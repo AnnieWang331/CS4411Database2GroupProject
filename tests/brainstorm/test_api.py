@@ -59,9 +59,9 @@ def idea_path(room_id: str, idea: dict, suffix: str) -> str:
     return f"/rooms/{room_id}/ideas/{quote(idea['idea_sk'], safe='')}/{suffix}"
 
 
-def test_create_room_hides_internal_keys(room):
+def test_create_room_hides_keys_and_owner_id(room):
     assert room["status"] == "open"
-    assert room["owner_id"] == "prof"
+    assert "owner_id" not in room
     assert not {"PK", "SK", "GSI1PK", "GSI1SK"} & room.keys()
     assert isinstance(room["expires_at"], int)
 

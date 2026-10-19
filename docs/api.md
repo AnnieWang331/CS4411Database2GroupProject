@@ -23,10 +23,17 @@ letters, digits, `_` or `-`. It can't contain `#`, because we put user ids insid
 Anyone can read a room if they know its id, so most read routes don't need the header. Every
 write route needs it, and so do `/my-rooms` and `/my-votes`, since they answer "what's mine".
 
+Because nobody checks the header, a room's owner id is all you need to close it. That's why
+responses never include `owner_id`: otherwise any student with the join code could read it and
+close the room. The owner's client already knows which rooms are its own from `POST /rooms` and
+`/my-rooms`. This is only a weak protection until we have real logins. Someone who guesses the
+owner's id (demo ids like `prof` are easy to guess) can still close the room, and anyone can send
+another student's id to post or vote as them.
+
 ## Routes
 
 Request and response bodies are JSON. Responses never include our internal key attributes (`PK`,
-`SK`, `GSI1PK`, `GSI1SK`). The one exception is that every idea comes back with an `idea_sk`
+`SK`, `GSI1PK`, `GSI1SK`) or a room's `owner_id`. The one exception is that every idea comes back with an `idea_sk`
 field, which is the idea's sort key (`IDEA#<created_at>#<idea_id>`). The vote and comment routes
 use `idea_sk` to find the idea, so they can update it without looking it up first. Because it
 contains `#` and `:`, the client has to percent-encode it in the URL (`encodeURIComponent` in

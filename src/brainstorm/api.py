@@ -40,7 +40,9 @@ USER_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 MAX_BODY_BYTES = 16 * 1024
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
-INTERNAL_KEYS = ("PK", "SK", "GSI1PK", "GSI1SK")
+# Key attributes, plus owner_id: X-User-Id isn't authenticated, so the owner's id is the
+# only thing needed to close a room and must not be handed out.
+HIDDEN_KEYS = ("PK", "SK", "GSI1PK", "GSI1SK", "owner_id")
 
 # Data-layer error -> (HTTP status, error code), most specific first.
 ERROR_STATUS: list[tuple[type[BrainstormError], int, str]] = [
@@ -118,8 +120,8 @@ def route(method: str, path: str) -> Callable[[Handler], Handler]:
 
 
 def public(item: dict[str, Any]) -> dict[str, Any]:
-    """Return an item without its internal key attributes; ideas keep ``SK`` as ``idea_sk``."""
-    out = {k: v for k, v in item.items() if k not in INTERNAL_KEYS}
+    """Return an item without key attributes or owner_id; ideas keep ``SK`` as ``idea_sk``."""
+    out = {k: v for k, v in item.items() if k not in HIDDEN_KEYS}
     if item.get("entity_type") == "IDEA":
         out["idea_sk"] = item["SK"]
     return out
