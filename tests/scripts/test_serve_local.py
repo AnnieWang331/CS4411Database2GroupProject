@@ -3,7 +3,7 @@
 import importlib.util
 import json
 import threading
-from http.server import ThreadingHTTPServer
+from http.server import HTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote
@@ -20,7 +20,7 @@ spec.loader.exec_module(serve_local)
 @pytest.fixture
 def base_url(table):
     """Run the local server on a free port for one test and return its URL."""
-    server = ThreadingHTTPServer(("127.0.0.1", 0), serve_local.make_handler(table))
+    server = HTTPServer(("127.0.0.1", 0), serve_local.make_handler(table))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{server.server_address[1]}"

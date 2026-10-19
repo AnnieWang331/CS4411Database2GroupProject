@@ -8,7 +8,7 @@ get and passed to ``brainstorm.api.handle``, so local runs and AWS share one cod
 
 import argparse
 import sys
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -71,7 +71,8 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=3000, help="port to listen on")
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer(
+    # One request at a time, like a Lambda container; boto3 resources aren't thread-safe.
+    server = HTTPServer(
         ("127.0.0.1", args.port), make_handler(db.table(args.table, args.endpoint_url))
     )
     print(f"Serving the brainstorm API on http://127.0.0.1:{args.port} (Ctrl+C to stop)")
