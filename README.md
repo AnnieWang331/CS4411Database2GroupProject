@@ -112,6 +112,10 @@ isn't running, the tests that need it are skipped instead of failing.
 Lint: run `ruff format --check .` and `ruff check .` before you push. The settings (like our
 100-character line length) are in `pyproject.toml`.
 
+GitHub Actions runs the same lint and tests (against DynamoDB Local) on every pull request and on
+every push to `main`; see `.github/workflows/ci.yml`. In CI a test that can't reach DynamoDB Local
+fails instead of being skipped. Please wait for the checks to pass before you merge.
+
 ### 5. Run the API
 
 ```sh

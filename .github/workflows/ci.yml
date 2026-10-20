@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch or PR cancels the run that's still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: ruff format
+        run: ruff format --check --diff .
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DYNAMODB_ENDPOINT_URL: http://localhost:8000
+      # Fail instead of skipping when DynamoDB Local isn't reachable (see tests/conftest.py).
+      REQUIRE_DYNAMODB_LOCAL: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Start DynamoDB Local
+        run: |
+          docker run -d --name dynamodb-local -p 8000:8000 amazon/dynamodb-local:3.3.2 \
+            -jar DynamoDBLocal.jar -inMemory -sharedDb
+          # DynamoDB Local answers a bare GET with HTTP 400 once it's listening.
+          for _ in $(seq 30); do
+            curl -s -o /dev/null http://localhost:8000 && exit 0
+            sleep 1
+          done
+          docker logs dynamodb-local
+          exit 1
+      - name: pytest
+        run: pytest -ra
+      - name: Create table and seed demo data
+        run: |
+          python scripts/create_table.py
+          python scripts/seed.py

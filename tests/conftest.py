@@ -23,9 +23,16 @@ def _local_is_up() -> bool:
 
 @pytest.fixture(scope="session")
 def dynamodb():
-    """DynamoDB Local service resource; skips the test run if DynamoDB Local isn't running."""
+    """DynamoDB Local service resource; skips the test run if DynamoDB Local isn't running.
+
+    Set ``REQUIRE_DYNAMODB_LOCAL=1`` (CI does) to fail instead, so a broken setup can't pass by
+    skipping every test.
+    """
     if not _local_is_up():
-        pytest.skip(f"DynamoDB Local is not running at {LOCAL_ENDPOINT} (see README)")
+        message = f"DynamoDB Local is not running at {LOCAL_ENDPOINT} (see README)"
+        if os.environ.get("REQUIRE_DYNAMODB_LOCAL"):
+            pytest.fail(message)
+        pytest.skip(message)
     return db.resource(LOCAL_ENDPOINT)
 
 
