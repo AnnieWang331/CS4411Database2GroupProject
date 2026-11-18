@@ -3,7 +3,7 @@
 ## Classroom Brainstorm Board in Real-Time using Amazon DynamoDB
 
 Group project for **COMPSCI 4411/9538 (Databases II)** at Western University, Fall 2026, in the
-*In-Depth Analysis of Data Management Systems* category (Amazon DynamoDB, Group 20).
+_In-Depth Analysis of Data Management Systems_ category (Amazon DynamoDB, Group 20).
 
 ### Overview
 
@@ -38,12 +38,16 @@ ahead of time, which makes it a good fit for DynamoDB's data modelling. The proj
 
 ### Deliverables
 
-- Project proposal
+- Project proposal (submitted November 4, 2026; see
+  [the proposal](docs/project-info/cs4411-group-20-project-proposal.pdf))
 - Final report (LaTeX/Overleaf template)
 - 15-minute recorded group presentation with slides and a live demo
 - Complete project artifacts for reproducibility: source code, datasets, and supporting materials
 
 Final deadline: **December 6, 2026**
+
+The course's project outline, the peer-review rubric and our proposal are in
+[docs/project-info/](docs/project-info/).
 
 ## Running the project locally
 
@@ -152,6 +156,7 @@ To check that your AWS profile can reach DynamoDB, run `python scripts/check_aws
 ```text
 docs/data-model.md     How we store the data in DynamoDB, and why
 docs/api.md            The HTTP API: routes, errors and who can call what
+docs/project-info/     Course requirements: project outline, grading rubric and our proposal
 src/brainstorm/        The Python code that talks to DynamoDB
   db.py                Connects to the table (DynamoDB Local or AWS)
   keys.py              Builds the PK/SK key values, ids, join codes and timestamps
@@ -173,13 +178,13 @@ tests/                 Our tests (they run against DynamoDB Local)
 
 ## Group Members
 
-| Name | Preferred Name | GitHub |
-| --- | --- | --- |
-| Wei Ting Wang | Annie | [@AnnieWang331](https://github.com/AnnieWang331) |
-| Myoungji Cho | Roah | [@Roahcho](https://github.com/Roahcho) |
-| Alexander King Perocho | Alex | [@perochoa](https://github.com/perochoa) |
-| Sachin Singh | Sachin | |
-| Muhammad Haadi Khawaja | Muhammad | [@mkhawa5](https://github.com/mkhawa5) |
+| Name                   | Preferred Name | GitHub                                           |
+| ---------------------- | -------------- | ------------------------------------------------ |
+| Wei Ting Wang          | Annie          | [@AnnieWang331](https://github.com/AnnieWang331) |
+| Myoungji Cho           | Roah           | [@Roahcho](https://github.com/Roahcho)           |
+| Alexander King Perocho | Alex           | [@perochoa](https://github.com/perochoa)         |
+| Sachin Singh           | Sachin         |                                                  |
+| Muhammad Haadi Khawaja | Muhammad       | [@mkhawa5](https://github.com/mkhawa5)           |
 
 Our Group Excel Sheet: \
-https://docs.google.com/spreadsheets/d/1D12NDc1bbNykrmjbw6rxI_1_SfABOOpvLZ4hAwmwTV8/edit?pli=1&gid=0#gid=0
+<https://docs.google.com/spreadsheets/d/1D12NDc1bbNykrmjbw6rxI_1_SfABOOpvLZ4hAwmwTV8/edit?pli=1&gid=0#gid=0>
