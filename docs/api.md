@@ -145,7 +145,64 @@ loses Wi-Fi. A connection that never got cleaned up is removed when a send to it
 `GoneException`, or by TTL when the room expires. Section 4.8 of [data-model.md](data-model.md)
 explains how connect handles a room that closes at the same moment.
 
-Updates only go from the server to the client. The messages (new idea, vote count, new comment,
-room closed) come from DynamoDB Streams and aren't built yet. Section 6 of the data model lists
-the plan. API Gateway WebSockets don't run on your own computer, so the local setup will need its
-own way to show live updates.
+API Gateway WebSockets don't run on your own computer, so the local setup will need its own way
+to show live updates.
+
+### Messages
+
+Updates only go from the server to the client. Each message is one JSON object with a `type` and
+the `room_id` it belongs to. They're built from DynamoDB Streams records by `to_event` in
+`src/brainstorm/stream_events.py`; section 6 of [data-model.md](data-model.md) says which table
+changes become which message.
+
+| `type` | Sent when | Other fields |
+|---|---|---|
+| `idea_added` | Someone posts an idea | `idea`: the idea, same shape as in the HTTP API (with `idea_sk`) |
+| `vote_count_changed` | An idea's vote count goes up or down | `idea_id`, `idea_sk`, `vote_count` (the new total) |
+| `comment_added` | Someone comments on an idea | `comment`: the comment, same shape as in the HTTP API |
+| `participant_joined` | Someone joins the room for the first time | `participant`: the participant, same shape as in the HTTP API |
+| `room_closed` | The owner closes the room | `closed_at` |
+| `room_expired` | DynamoDB's TTL deletes the room | |
+
+```json
+{"type": "idea_added", "room_id": "01JAB3K9",
+ "idea": {"entity_type": "IDEA", "idea_id": "01JAB4QX",
+          "idea_sk": "IDEA#2026-10-18T14:05:31.120Z#01JAB4QX",
+          "author_id": "stu-042", "author_name": "Roah", "body": "Use a GSI for top-voted ideas",
+          "vote_count": 0, "comment_count": 0,
+          "created_at": "2026-10-18T14:05:31.120Z", "expires_at": 1761055200}}
+
+{"type": "vote_count_changed", "room_id": "01JAB3K9", "idea_id": "01JAB4QX",
+ "idea_sk": "IDEA#2026-10-18T14:05:31.120Z#01JAB4QX", "vote_count": 3}
+
+{"type": "comment_added", "room_id": "01JAB3K9",
+ "comment": {"entity_type": "COMMENT", "comment_id": "01JAB5A1", "idea_id": "01JAB4QX",
+             "author_id": "stu-007", "author_name": "Sachin", "body": "Client-side sort is enough",
+             "created_at": "2026-10-18T14:07:45.300Z", "expires_at": 1761055200}}
+
+{"type": "participant_joined", "room_id": "01JAB3K9",
+ "participant": {"entity_type": "PARTICIPANT", "user_id": "stu-042", "display_name": "Roah",
+                 "joined_at": "2026-10-18T14:02:11.507Z", "expires_at": 1761055200}}
+
+{"type": "room_closed", "room_id": "01JAB3K9", "closed_at": "2026-10-18T15:00:00.000Z"}
+
+{"type": "room_expired", "room_id": "01JAB3K9"}
+```
+
+Like HTTP responses, messages never include `PK`, `SK`, `GSI1PK`, `GSI1SK` or `owner_id`. A new
+comment doesn't send a separate message for the idea's `comment_count`: the client adds 1 itself
+when it gets `comment_added`.
+
+What the client has to handle:
+
+- **Duplicates and order.** DynamoDB Streams can deliver a change twice, and changes to different
+  items (an idea and its comment, say) can arrive in any order. So each message carries absolute
+  values (`vote_count` is the new total, not +1), and the client should skip an idea, comment or
+  participant it already has (by `idea_id`, `comment_id` or `user_id`). A `comment_added` can
+  arrive before its `idea_added`; the client should keep it until the idea shows up or reload the
+  board.
+- **Missed messages.** A message sent while the socket was reconnecting is lost. After
+  reconnecting, the client reloads the board over HTTP.
+- **End of the board.** `room_closed` and `room_expired` mean nothing more will change. The
+  client shows the room as closed and can close the socket.
+- **Unknown types.** Ignore any `type` not listed here, so we can add messages later.

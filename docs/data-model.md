@@ -377,7 +377,9 @@ Streams only keep changes in order for each single item, not for a whole room [1
 from one transaction can also show up at different times or mixed in with other changes [6]. So
 the front-end should handle each update on its own and not care if it sees the same one twice.
 
-What we plan to send:
+Which change becomes which message is decided by `to_event` in `src/brainstorm/stream_events.py`,
+which doesn't call AWS, so it's tested on its own with sample records. The message shapes are in
+[api.md](api.md). What we send:
 
 - **New idea** (IDEA insert): `idea_added`, with the new idea.
 - **Vote count changed** (IDEA update where `vote_count` changed): `vote_count_changed`, with the
@@ -385,10 +387,17 @@ What we plan to send:
 - **New comment** (COMMENT insert): `comment_added`. When only the idea's `comment_count` changes,
   we skip it, because the comment insert already has the data.
 - **Someone joined** (PARTICIPANT insert): `participant_joined`.
-- **Room closed** (ROOM update from open to closed): `room_closed`.
-- **Room expired** (ROOM removed by TTL): `room_expired`. TTL deletes show up in the stream as
-  deletes done by the DynamoDB service itself (`dynamodb.amazonaws.com`) [11]. We skip the TTL
-  deletes for the room's other items.
+- **Room closed** (ROOM update from open to closed): `room_closed`. Closing also sets
+  `closed_at` in the same write, so we only look at `status`: any change from `open` to `closed`
+  sends `room_closed`, whatever else changed. The live-update function relies on it to tell
+  clients the board is done and to clean up the room's connections, and so does connect's
+  handling of a close that lands mid-connect (4.8).
+- **Room expired** (ROOM removed by TTL): `room_expired`, whether the room was still open or had
+  already been closed, so leftover connections still get cleaned up. TTL deletes show up in the
+  stream as deletes done by the DynamoDB service itself (`dynamodb.amazonaws.com`) [11]. We skip
+  the TTL deletes for the room's other items.
+- **Someone joined again** (PARTICIPANT update, for example a new display name): nothing. Only
+  the first join sends `participant_joined`.
 - Vote markers, code items and connection items: nothing to send. Connection items change every
   time someone opens or closes the board, so the stream trigger should filter them out by
   `entity_type` instead of starting the function just to ignore them.

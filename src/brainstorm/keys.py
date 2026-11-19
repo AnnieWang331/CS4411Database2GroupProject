@@ -42,6 +42,14 @@ def room_pk(room_id: str) -> str:
     return f"ROOM#{room_id}"
 
 
+def room_id_from_pk(pk: str) -> str | None:
+    """Return the room id in a ``ROOM#<room_id>`` partition key, or ``None`` for other keys."""
+    prefix = room_pk("")
+    if pk.startswith(prefix) and len(pk) > len(prefix):
+        return pk[len(prefix) :]
+    return None
+
+
 def code_pk(code: str) -> str:
     """Partition key of a join-code item."""
     return f"CODE#{code}"
