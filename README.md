@@ -164,8 +164,10 @@ src/brainstorm/        The Python code that talks to DynamoDB
   schema.py            Creates the table
   rooms.py             Creating, joining, closing and listing rooms
   ideas.py             Posting ideas, loading the board, voting, commenting
+  connections.py       Which WebSockets are connected to each room
   transactions.py      Writes that change several items at once, with retries
   api.py               The HTTP API (one Lambda handler for every route)
+  ws.py                The WebSocket API ($connect and $disconnect)
 scripts/               Scripts to create the table, add demo data, run the API locally and
                        check AWS access
 tests/                 Our tests (they run against DynamoDB Local)

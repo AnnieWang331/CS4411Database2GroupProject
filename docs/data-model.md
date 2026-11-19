@@ -2,7 +2,7 @@
 
 This document explains how we store the brainstorm board in DynamoDB and why we designed it this
 way. The code that follows this design is in `src/brainstorm/`: `schema.py` creates the table, and
-`rooms.py` and `ideas.py` contain the reads and writes described below.
+`rooms.py`, `ideas.py` and `connections.py` contain the reads and writes described below.
 
 ## The big idea
 
@@ -19,12 +19,14 @@ comments, votes and participants all live together, we can load a whole board wi
 `Query` instead of joining tables like we would in SQL. It also means the whole room can expire
 together.
 
-Only two things live outside the room's partition:
+Only three things live outside the room's partition:
 
 - **Join codes** (`CODE#<code>`). Each code gets its own item so the database can guarantee that
   two open rooms never get the same code.
 - **"My rooms" for instructors.** This uses a *global secondary index* (GSI), which is a second
   copy of some of the data sorted by different keys. Ours is called GSI1.
+- **Connection lookups** (`CONN#<connection_id>`). When a WebSocket closes, API Gateway only tells
+  us the connection id, so this small item points back to the room (section 2).
 
 ## Naming rules we follow
 
@@ -48,14 +50,13 @@ Only two things live outside the room's partition:
 Inside a room's partition, items sort alphabetically by their sort key, which gives this order:
 
 ```text
-COMMENT#...  <  IDEA#...  <  META  <  USER#...  <  VOTE#...
+COMMENT#...  <  IDEA#...  <  META  <  USER#...  <  VOTE#...  <  WS#...
 ```
 
 We use this on purpose. Asking for every sort key between `IDEA#` and `META` gives us the room
 info plus all the ideas, and asking for everything up to `META` also gives us the comments. A
-board load never reads participants or votes because they sort after `META`. If we add a new
-kind of item to a room later (for example `WS#` for WebSocket connections), its prefix has to
-sort after `META` too.
+board load never reads participants, votes or WebSocket connections because they sort after
+`META`. If we add a new kind of item to a room later, its prefix has to sort after `META` too.
 
 ## 1. What the app needs to do (access patterns)
 
@@ -83,6 +84,9 @@ or none of them do [6].
 | 16 | Close a room | Transaction: mark the room closed and free its join code (4.7) |
 | 17 | Instructor lists their rooms | `Query` on GSI1 for `USER#<owner id>`, newest first |
 | 18 | Delete old rooms | Nothing to call: TTL deletes items after `expires_at` |
+| 19 | Connect a WebSocket to a room | Read the room (pattern 3), then a transaction adds the connection and its lookup item (4.8) |
+| 20 | Disconnect a WebSocket | `GetItem` on `CONN#<connection_id>` to find the room, then a transaction deletes both items (4.8) |
+| 21 | List a room's connections (for live updates) | `Query` for sort keys starting with `WS#` |
 
 There are no `Scan`s. A Scan reads the whole table, which gets slow and expensive as the table
 grows. Every pattern above is a `GetItem` or a `Query` on one partition. A `Query` can match the
@@ -107,6 +111,8 @@ A few things to know:
 | Idea (`IDEA`) | `ROOM#<room_id>` | `IDEA#<created_at>#<idea_id>` | author_id, author_name, body, vote_count, comment_count, created_at, expires_at |
 | Vote marker (`VOTE`) | `ROOM#<room_id>` | `VOTE#<user_id>#<idea_id>` | idea_id, idea_sk, created_at, expires_at |
 | Comment (`COMMENT`) | `ROOM#<room_id>` | `COMMENT#<idea_id>#<created_at>#<comment_id>` | idea_id, author_id, author_name, body, created_at, expires_at |
+| Connection (`CONNECTION`) | `ROOM#<room_id>` | `WS#<connection_id>` | connection_id, room_id, connected_at, expires_at |
+| Connection lookup (`CONNECTION_LOOKUP`) | `CONN#<connection_id>` | `META` | connection_id, room_id, connected_at, expires_at |
 
 Room items also get `GSI1PK = USER#<owner_id>` and `GSI1SK = ROOM#<created_at>#<room_id>`, which
 is what puts them in the "my rooms" index.
@@ -143,6 +149,14 @@ Here's what a few items look like (numbers are shown without quotes):
  "entity_type": "COMMENT", "comment_id": "01JAB5A1", "idea_id": "01JAB4QX",
  "author_id": "stu-007", "author_name": "Sachin", "body": "Client-side sort is enough",
  "created_at": "2026-10-18T14:07:45.300Z", "expires_at": 1761055200}
+
+{"PK": "ROOM#01JAB3K9", "SK": "WS#Lx3fGc7NoAMCJ4w=", "entity_type": "CONNECTION",
+ "connection_id": "Lx3fGc7NoAMCJ4w=", "room_id": "01JAB3K9",
+ "connected_at": "2026-10-18T14:02:12.880Z", "expires_at": 1761055200}
+
+{"PK": "CONN#Lx3fGc7NoAMCJ4w=", "SK": "META", "entity_type": "CONNECTION_LOOKUP",
+ "connection_id": "Lx3fGc7NoAMCJ4w=", "room_id": "01JAB3K9",
+ "connected_at": "2026-10-18T14:02:12.880Z", "expires_at": 1761055200}
 ```
 
 Some choices we made:
@@ -153,6 +167,12 @@ Some choices we made:
   300.
 - **The vote marker stores the idea's sort key** (`idea_sk`), so taking a vote back doesn't need
   an extra read to find the idea.
+- **A connection is stored twice.** The `WS#` item lives in the room so the live-update function
+  can find everyone in a room with one Query. The `CONN#` item is there because the disconnect
+  event only has the connection id. We could have used a GSI on the connection id instead, but
+  GSI reads are eventually consistent [9], so a quick connect-then-disconnect could miss the
+  item, and every connection would cost an extra index write. Connection ids come from API
+  Gateway and we don't control their format, so we reject any id containing `#`.
 - **Everything copies the room's `expires_at`.** Because of that, we can't easily make a room last
   longer once it's created (we'd have to update every item in it), so we left that out for now.
 
@@ -280,6 +300,29 @@ happen after this room has expired, and step 1 already refuses to close an expir
 two never clash. If step 1 fails, our code reads the room to tell the caller whether they aren't
 the owner or the room was already closed.
 
+### 4.8 Connect and disconnect a WebSocket
+
+To connect, we read the room (pattern 3). If it's missing or expired we refuse with 404, and if
+it's closed we refuse with 409. Then one transaction adds the `WS#` item and the `CONN#` item, so
+there's never one without the other. Both items get the room's `expires_at`.
+
+This is the one write that **doesn't** check the room inside the transaction, on purpose. A
+condition check still counts as part of the transaction, and two transactions that touch the same
+item at the same time conflict [6]. When a whole class opens the board at once, every connect would
+fight over the room item with every other connect, and with the posts and votes happening at the
+same moment. Connecting isn't a rule worth that cost: if the room closes between our read and
+our write, we just store one extra connection, and that client receives `room_closed` anyway.
+AWS also recommends not grouping operations in a transaction when they don't need to be [6].
+
+To disconnect, we read `CONN#<connection_id>` with a strongly consistent read to find the room,
+then delete both items in one transaction. There's no condition on the room, because a socket on a
+closed or expired room still has to be cleaned up. If the lookup item isn't there, there's nothing
+to do.
+
+API Gateway only sends the disconnect event on a best-effort basis [19], so some connections are
+never cleaned up this way. The live-update function deletes a connection when sending to it fails
+with `GoneException`, and TTL removes whatever is left when the room expires.
+
 ## 5. Size, scale and cost
 
 - **Item size.** Items can be up to 400 KB, including attribute names [1]. Our biggest items are
@@ -295,7 +338,8 @@ the owner or the room was already closed.
   - a popular idea's counter when lots of people vote at once.
 
   Our retries handle this. If the benchmark shows lots of conflicts, we could stop checking the
-  room on every vote (open question 3).
+  room on every vote (open question 3). WebSocket connects already skip the room check for this
+  reason (4.8).
 - **Transactions cost double.** Each item in a transaction is processed twice (prepare and
   commit), and cancelled transactions still use capacity [6]. A vote touches 3 items.
 - **The index is cheap.** GSI1 only changes when a room is created or closed, because only room
@@ -328,7 +372,12 @@ What we plan to send:
 - **Room expired** (ROOM removed by TTL): `room_expired`. TTL deletes show up in the stream as
   deletes done by the DynamoDB service itself (`dynamodb.amazonaws.com`) [11]. We skip the TTL
   deletes for the room's other items.
-- Vote markers and code items: nothing to send.
+- Vote markers, code items and connection items: nothing to send. Connection items change every
+  time someone opens or closes the board, so the stream trigger should filter them out by
+  `entity_type` instead of starting the function just to ignore them.
+
+The function finds who to send to with pattern 21. If sending to a connection fails because it's
+gone, the function deletes that connection (4.8).
 
 A write that doesn't actually change anything doesn't create a stream record [12].
 
@@ -369,9 +418,8 @@ What we're doing for now is in brackets.
    new access patterns and stream events. (Not for now.)
 6. **"Rooms I've joined" for students.** We could add participant items to GSI1 with
    `GSI1PK = USER#<user>` and `GSI1SK = JOINED#<time>#<room_id>`. (Not for now.)
-7. **Storing WebSocket connections.** We plan to store them in the room as `WS#<connection_id>`
-   with `expires_at`, so the Streams function can find a room's connections with one Query. We'll
-   confirm this when we build the WebSocket part.
+7. **Storing WebSocket connections.** (Decided 2026-11-18: in the room as `WS#<connection_id>`,
+   plus a `CONN#<connection_id>` lookup item for disconnects; see 4.8.)
 
 ## References
 
@@ -393,3 +441,4 @@ What we're doing for now is in brackets.
 [16] AWS, "Take advantage of sparse indexes," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-indexes-general-sparse-indexes.html
 [17] AWS, "Working with items and attributes" (Atomic counters), https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithItems.html#WorkingWithItems.AtomicCounters
 [18] AWS, "TransactWriteItems," Amazon DynamoDB API Reference, https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html
+[19] AWS, "$connect and $disconnect routes," https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-websocket-api-route-keys-connect-disconnect.html
