@@ -32,3 +32,10 @@ def test_room_partition_sort_order():
         keys.vote_sk("u", "i"),
     ]
     assert ordered == sorted(ordered)
+
+
+def test_room_id_from_pk():
+    assert keys.room_id_from_pk(keys.room_pk("01JAB3K9")) == "01JAB3K9"
+    assert keys.room_id_from_pk(keys.code_pk("K7QM4X")) is None
+    assert keys.room_id_from_pk(keys.connection_pk("abc=")) is None
+    assert keys.room_id_from_pk("ROOM#") is None
