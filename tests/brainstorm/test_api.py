@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 import pytest
 
-from brainstorm import api
+from brainstorm import api, errors
 from brainstorm.transactions import TransactionCanceledError
 
 
@@ -279,7 +279,7 @@ def test_unexpected_error_is_500_without_details(monkeypatch):
 
 
 def test_every_brainstorm_error_has_a_status():
-    assert set(api.BrainstormError.__subclasses__()) <= api.ERROR_STATUS.keys()
+    assert set(errors.BrainstormError.__subclasses__()) <= errors.ERROR_STATUS.keys()
 
 
 def test_handle_turns_unexpected_errors_into_500(monkeypatch):

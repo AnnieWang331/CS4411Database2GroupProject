@@ -8,6 +8,8 @@ META = "META"
 # Join-code alphabet without look-alike characters (no I, L, O, 0, 1).
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 CODE_LENGTH = 6
+# Sort-key prefix of a room's connection items (pattern 21 queries on it).
+CONNECTION_PREFIX = "WS#"
 
 
 def utc_now() -> datetime:
@@ -63,6 +65,16 @@ def vote_sk(user_id: str, idea_id: str) -> str:
 def comment_sk(idea_id: str, created_at: str, comment_id: str) -> str:
     """Comment sort key; groups comments by idea, oldest first."""
     return f"COMMENT#{idea_id}#{created_at}#{comment_id}"
+
+
+def connection_sk(connection_id: str) -> str:
+    """WebSocket connection sort key; sorts after META so board loads skip it."""
+    return f"{CONNECTION_PREFIX}{connection_id}"
+
+
+def connection_pk(connection_id: str) -> str:
+    """Partition key of the item that maps a connection back to its room (for $disconnect)."""
+    return f"CONN#{connection_id}"
 
 
 def owner_room_sk(created_at: str, room_id: str) -> str:

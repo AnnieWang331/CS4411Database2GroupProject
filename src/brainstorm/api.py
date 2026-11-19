@@ -16,21 +16,8 @@ from decimal import Decimal
 from typing import Any
 from urllib.parse import unquote
 
-from botocore.exceptions import ClientError
-
 from brainstorm import db, ideas, keys, rooms
-from brainstorm.errors import (
-    AlreadyVotedError,
-    BrainstormError,
-    CodeUnavailableError,
-    IdeaNotFoundError,
-    InvalidInputError,
-    NotRoomOwnerError,
-    NotVotedError,
-    RoomClosedError,
-    RoomNotFoundError,
-)
-from brainstorm.transactions import RETRYABLE_CODES, TransactionCanceledError
+from brainstorm.errors import InvalidInputError, classify_error
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +30,6 @@ MAX_PAGE_SIZE = 100
 # Key attributes, plus owner_id: X-User-Id isn't authenticated, so the owner's id is the
 # only thing needed to close a room and must not be handed out.
 HIDDEN_KEYS = ("PK", "SK", "GSI1PK", "GSI1SK", "owner_id")
-
-# Data-layer error -> (HTTP status, error code); test_api checks every subclass is listed.
-ERROR_STATUS: dict[type[BrainstormError], tuple[int, str]] = {
-    InvalidInputError: (400, "invalid_input"),
-    NotRoomOwnerError: (403, "not_room_owner"),
-    RoomNotFoundError: (404, "room_not_found"),
-    IdeaNotFoundError: (404, "idea_not_found"),
-    RoomClosedError: (409, "room_closed"),
-    AlreadyVotedError: (409, "already_voted"),
-    NotVotedError: (409, "not_voted"),
-    CodeUnavailableError: (503, "code_unavailable"),
-}
-# DynamoDB errors that mean "too busy right now" rather than a bug.
-THROTTLING_CODES = {"ProvisionedThroughputExceededException", "ThrottlingException"}
 
 
 class ApiError(Exception):
@@ -361,24 +334,18 @@ def handle(table, event: dict[str, Any]) -> dict[str, Any]:
         return response(status, payload)
     except ApiError as err:
         return error(err.status, err.code, str(err))
-    except BrainstormError as err:
-        status, code = ERROR_STATUS[type(err)]
-        return error(status, code, str(err) or code)
-    except TransactionCanceledError as err:
-        if RETRYABLE_CODES & set(err.codes):
-            # transact_write ran out of retries on conflicts or throttling.
-            logger.warning("transaction still failing after retries: %s %s", method, path)
-            return error(503, "busy", "the database is busy, please try again")
-        logger.exception("unexpected transaction failure on %s %s", method, path)
-        return error(500, "internal_error", "something went wrong")
-    except ClientError as err:
-        if err.response["Error"]["Code"] in THROTTLING_CODES:
-            return error(503, "busy", "the database is busy, please try again")
-        logger.exception("DynamoDB error on %s %s", method, path)
-        return error(500, "internal_error", "something went wrong")
-    except Exception:
-        logger.exception("unhandled error on %s %s", method, path)
-        return error(500, "internal_error", "something went wrong")
+    except Exception as err:
+        info = classify_error(err)
+        if info.log_level is not None:
+            logger.log(
+                info.log_level,
+                "%s on %s %s",
+                info.code,
+                method,
+                path,
+                exc_info=info.log_level >= logging.ERROR,
+            )
+        return error(info.status, info.code, info.message)
 
 
 _table = None
