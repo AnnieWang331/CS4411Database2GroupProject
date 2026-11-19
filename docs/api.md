@@ -103,3 +103,49 @@ conflicts. `transact_write` retries those with backoff, and `busy` means it stil
 The browser client will be served from a different origin than the API, so every response
 includes `Access-Control-Allow-*` headers and `OPTIONS` requests get an empty `204`. The allowed
 origin is `*` unless the `CORS_ALLOW_ORIGIN` environment variable says otherwise.
+
+## WebSocket API (live updates)
+
+The board updates live over a WebSocket. This is a second API Gateway API (a WebSocket API, not
+an HTTP API), and it runs `lambda_handler` in `src/brainstorm/ws.py`. API Gateway keeps the socket
+open and only calls our function when a client connects, disconnects or sends a message, so the
+function doesn't have to stay running for the whole class.
+
+To subscribe to a room, the client opens:
+
+```
+wss://<api-id>.execute-api.<region>.amazonaws.com/<stage>?room_id=<room_id>
+```
+
+The room id goes in the query string because browsers can't set headers on a WebSocket. There's
+no `X-User-Id` here: watching a board is a read, and anyone with the room id can already read it.
+
+| Route | What we do | Pattern |
+|---|---|---|
+| `$connect` | Store the connection for the room, or refuse it | 19 |
+| `$disconnect` | Delete the connection's items | 20 |
+| `$default` | Nothing. Clients never send us anything we act on | |
+
+`$connect` refuses the socket by returning a status other than 200:
+
+| Status | When |
+|---|---|
+| 400 | `room_id` is missing, empty, contains `#`, or is over 128 characters |
+| 404 | The room doesn't exist or has expired |
+| 409 | The room is closed |
+| 503 | DynamoDB is busy (throttling or transaction conflicts) |
+| 500 | A bug. The details are logged |
+
+A browser doesn't show the client which status it got. The socket just fails to open. So when
+that happens, the client should load the board over HTTP (`GET /rooms/{room_id}`) to find out why,
+and show "room closed" or "not found" from that response.
+
+`$disconnect` is best effort. API Gateway doesn't promise to send it, for example when a laptop
+loses Wi-Fi. A connection that never got cleaned up is removed when a send to it fails with
+`GoneException`, or by TTL when the room expires. Section 4.8 of [data-model.md](data-model.md)
+explains how connect handles a room that closes at the same moment.
+
+Updates only go from the server to the client. The messages (new idea, vote count, new comment,
+room closed) come from DynamoDB Streams and aren't built yet. Section 6 of the data model lists
+the plan. API Gateway WebSockets don't run on your own computer, so the local setup will need its
+own way to show live updates.
