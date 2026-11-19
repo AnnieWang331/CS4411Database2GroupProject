@@ -48,13 +48,20 @@ def handle(table, event: dict[str, Any]) -> dict[str, Any]:
     except BrainstormError as err:
         status = ERROR_STATUS[type(err)][0]
     except TransactionCanceledError as err:
-        status = 503 if RETRYABLE_CODES & set(err.codes) else 500
-        if status == 500:
+        if RETRYABLE_CODES & set(err.codes):
+            # transact_write ran out of retries on conflicts or throttling.
+            logger.warning("transaction still failing after retries on %s", route_key)
+            status = 503
+        else:
             logger.exception("unexpected transaction failure on %s", route_key)
+            status = 500
     except ClientError as err:
-        status = 503 if err.response["Error"]["Code"] in THROTTLING_CODES else 500
-        if status == 500:
+        if err.response["Error"]["Code"] in THROTTLING_CODES:
+            logger.warning("throttled on %s", route_key)
+            status = 503
+        else:
             logger.exception("DynamoDB error on %s", route_key)
+            status = 500
     except Exception:
         logger.exception("unhandled error on %s", route_key)
         status = 500
