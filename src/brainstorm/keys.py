@@ -65,6 +65,16 @@ def comment_sk(idea_id: str, created_at: str, comment_id: str) -> str:
     return f"COMMENT#{idea_id}#{created_at}#{comment_id}"
 
 
+def connection_sk(connection_id: str) -> str:
+    """WebSocket connection sort key; sorts after META so board loads skip it."""
+    return f"WS#{connection_id}"
+
+
+def connection_pk(connection_id: str) -> str:
+    """Partition key of the item that maps a connection back to its room (for $disconnect)."""
+    return f"CONN#{connection_id}"
+
+
 def owner_room_sk(created_at: str, room_id: str) -> str:
     """GSI1 sort key for an owner's rooms, newest last."""
     return f"ROOM#{created_at}#{room_id}"
