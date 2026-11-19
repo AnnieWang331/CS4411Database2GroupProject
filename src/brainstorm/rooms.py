@@ -100,13 +100,18 @@ def create_room(table, owner_id: str, topic: str, ttl: timedelta = DEFAULT_TTL) 
     raise CodeUnavailableError(f"no free join code after {MAX_CODE_ATTEMPTS} attempts")
 
 
-def get_room(table, room_id: str) -> dict[str, Any]:
+def get_room(table, room_id: str, consistent: bool = False) -> dict[str, Any]:
     """Return a live room's META item (pattern 3).
+
+    Pass ``consistent=True`` when the caller can't rely on a later condition check to catch a
+    stale read (a room created or closed a moment ago).
 
     Raises:
         RoomNotFoundError: The room doesn't exist or has expired.
     """
-    item = table.get_item(Key={"PK": keys.room_pk(room_id), "SK": keys.META}).get("Item")
+    item = table.get_item(
+        Key={"PK": keys.room_pk(room_id), "SK": keys.META}, ConsistentRead=consistent
+    ).get("Item")
     if item is None or not is_live(item):
         raise RoomNotFoundError(room_id)
     return item

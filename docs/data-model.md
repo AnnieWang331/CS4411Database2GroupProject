@@ -84,9 +84,9 @@ or none of them do [6].
 | 16 | Close a room | Transaction: mark the room closed and free its join code (4.7) |
 | 17 | Instructor lists their rooms | `Query` on GSI1 for `USER#<owner id>`, newest first |
 | 18 | Delete old rooms | Nothing to call: TTL deletes items after `expires_at` |
-| 19 | Connect a WebSocket to a room | Read the room (pattern 3), then a transaction adds the connection and its lookup item (4.8) |
+| 19 | Connect a WebSocket to a room | Strongly consistent read of the room (pattern 3), a transaction adds the connection and its lookup item, then the room is read again (4.8) |
 | 20 | Disconnect a WebSocket | `GetItem` on `CONN#<connection_id>` to find the room, then a transaction deletes both items (4.8) |
-| 21 | List a room's connections (for live updates) | `Query` for sort keys starting with `WS#` |
+| 21 | List a room's connections (for live updates) | Strongly consistent `Query` for sort keys starting with `WS#` |
 
 There are no `Scan`s. A Scan reads the whole table, which gets slow and expensive as the table
 grows. Every pattern above is a `GetItem` or a `Query` on one partition. A `Query` can match the
@@ -302,17 +302,30 @@ the owner or the room was already closed.
 
 ### 4.8 Connect and disconnect a WebSocket
 
-To connect, we read the room (pattern 3). If it's missing or expired we refuse with 404, and if
-it's closed we refuse with 409. Then one transaction adds the `WS#` item and the `CONN#` item, so
-there's never one without the other. Both items get the room's `expires_at`.
+To connect, we read the room (pattern 3) with a strongly consistent read, so a room created a
+moment ago isn't missed. If it's missing or expired we refuse with 404, and if it's closed we
+refuse with 409. A room id that can't go in a key (empty, contains `#`, or over 128 characters) is
+refused with 400. Then one transaction adds the `WS#` item and the `CONN#` item, so there's never
+one without the other. Both items get the room's `expires_at`.
 
 This is the one write that **doesn't** check the room inside the transaction, on purpose. A
 condition check still counts as part of the transaction, and two transactions that touch the same
 item at the same time conflict [6]. When a whole class opens the board at once, every connect would
 fight over the room item with every other connect, and with the posts and votes happening at the
-same moment. Connecting isn't a rule worth that cost: if the room closes between our read and
-our write, we just store one extra connection, and that client receives `room_closed` anyway.
-AWS also recommends not grouping operations in a transaction when they don't need to be [6].
+same moment. AWS also recommends not grouping operations in a transaction when they don't need to
+be [6].
+
+Without that check, the room could close between our read and our write. If the live-update
+function had already listed the room's connections to send `room_closed`, the new client would
+never hear about the close. So after the write we read the room again, strongly consistent:
+
+- If it's closed (or expired) by now, we delete both items and refuse the connection.
+- If it's still open, any close comes after our write. The live-update function lists
+  connections with a strongly consistent `Query` (pattern 21), so it will see ours.
+
+The one gap left is a close landing in the few milliseconds before API Gateway finishes accepting
+the connection: a send to a connection that isn't accepted yet fails. That client would see a
+board that stops updating, which is the same as a missed message, and reloading fixes it.
 
 To disconnect, we read `CONN#<connection_id>` with a strongly consistent read to find the room,
 then delete both items in one transaction. There's no condition on the room, because a socket on a

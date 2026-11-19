@@ -8,6 +8,8 @@ META = "META"
 # Join-code alphabet without look-alike characters (no I, L, O, 0, 1).
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 CODE_LENGTH = 6
+# Sort-key prefix of a room's connection items (pattern 21 queries on it).
+CONNECTION_PREFIX = "WS#"
 
 
 def utc_now() -> datetime:
@@ -67,7 +69,7 @@ def comment_sk(idea_id: str, created_at: str, comment_id: str) -> str:
 
 def connection_sk(connection_id: str) -> str:
     """WebSocket connection sort key; sorts after META so board loads skip it."""
-    return f"WS#{connection_id}"
+    return f"{CONNECTION_PREFIX}{connection_id}"
 
 
 def connection_pk(connection_id: str) -> str:

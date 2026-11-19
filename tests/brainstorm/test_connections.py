@@ -108,3 +108,29 @@ def test_ws_handler_refuses_bad_connects(table):
     rooms.close_room(table, room["room_id"], "prof")
     closed = ws_event("$connect", "c1", {"room_id": room["room_id"]})
     assert ws.handle(table, closed)["statusCode"] == 409
+
+
+def test_connect_rejects_bad_room_ids(table):
+    for room_id in ["x" * 3000, "a#b"]:
+        with pytest.raises(InvalidInputError):
+            connections.connect(table, room_id, "c1")
+        status = ws.handle(table, ws_event("$connect", "c1", {"room_id": room_id}))["statusCode"]
+        assert status == 400
+
+
+def test_connect_undoes_itself_if_room_closes_during_connect(table, monkeypatch):
+    room = rooms.create_room(table, "prof", "Topic")
+    room_id = room["room_id"]
+    real_write = connections.transact_write
+
+    def close_then_write(table, items):
+        # The close commits between connect's first read and its write.
+        rooms.close_room(table, room_id, "prof")
+        monkeypatch.setattr(connections, "transact_write", real_write)
+        real_write(table, items)
+
+    monkeypatch.setattr(connections, "transact_write", close_then_write)
+    with pytest.raises(RoomClosedError):
+        connections.connect(table, room_id, "c1")
+    assert connections.list_connections(table, room_id) == []
+    assert connections.disconnect(table, "c1") is None
