@@ -8,12 +8,8 @@ connection. Clients never send anything we act on: updates only flow from the se
 import logging
 from typing import Any
 
-from botocore.exceptions import ClientError
-
 from brainstorm import connections, db
-from brainstorm.api import ERROR_STATUS, THROTTLING_CODES
-from brainstorm.errors import BrainstormError
-from brainstorm.transactions import RETRYABLE_CODES, TransactionCanceledError
+from brainstorm.errors import classify_error
 
 logger = logging.getLogger(__name__)
 
@@ -45,26 +41,17 @@ def handle(table, event: dict[str, Any]) -> dict[str, Any]:
             status = on_disconnect(table, connection_id)
         else:
             status = 200  # $default: ignore messages from clients
-    except BrainstormError as err:
-        status = ERROR_STATUS[type(err)][0]
-    except TransactionCanceledError as err:
-        if RETRYABLE_CODES & set(err.codes):
-            # transact_write ran out of retries on conflicts or throttling.
-            logger.warning("transaction still failing after retries on %s", route_key)
-            status = 503
-        else:
-            logger.exception("unexpected transaction failure on %s", route_key)
-            status = 500
-    except ClientError as err:
-        if err.response["Error"]["Code"] in THROTTLING_CODES:
-            logger.warning("throttled on %s", route_key)
-            status = 503
-        else:
-            logger.exception("DynamoDB error on %s", route_key)
-            status = 500
-    except Exception:
-        logger.exception("unhandled error on %s", route_key)
-        status = 500
+    except Exception as err:
+        info = classify_error(err)
+        if info.log_level is not None:
+            logger.log(
+                info.log_level,
+                "%s on %s",
+                info.code,
+                route_key,
+                exc_info=info.log_level >= logging.ERROR,
+            )
+        status = info.status
     return {"statusCode": status}
 
 
