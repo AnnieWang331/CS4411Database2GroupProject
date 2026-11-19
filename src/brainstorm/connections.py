@@ -6,18 +6,21 @@ so ``$disconnect`` (which only gets the connection id) can find the room. Access
 refer to docs/data-model.md, section 1.
 """
 
+import logging
 from typing import Any
 
 from boto3.dynamodb.conditions import Key
 
 from brainstorm import keys
-from brainstorm.errors import InvalidInputError, RoomClosedError, RoomNotFoundError
+from brainstorm.errors import InvalidInputError, RoomClosedError
 from brainstorm.rooms import OPEN, get_room, is_live, query_all
 from brainstorm.transactions import transact_write
 
 # Room ids are 32 hex characters and API Gateway connection ids are about 16; the cap keeps a bad
 # query string from building a key over DynamoDB's size limit (a 500 instead of a 400).
 MAX_ID_LENGTH = 128
+
+logger = logging.getLogger(__name__)
 
 
 def require_id(value: str, name: str) -> str:
@@ -34,7 +37,9 @@ def connect(table, room_id: str, connection_id: str) -> dict[str, Any]:
     connect conflict with the class's other connects, posts and votes. Instead the room is read
     again (strongly consistent) after the write. If it closed in between, the connection is
     removed and refused. If it closes after that second read, the close comes after our write, so
-    the live-update function's (consistent) list of connections includes this one.
+    the live-update function's (consistent) list of connections includes this one. If the second
+    read fails for any other reason (throttling, say), the connection is removed too, so a refused
+    socket never leaves items behind for the broadcaster.
 
     Raises:
         InvalidInputError: The room or connection id can't be used in a key.
@@ -64,12 +69,11 @@ def connect(table, room_id: str, connection_id: str) -> dict[str, Any]:
     transact_write(table, [{"Put": {"Item": connection}}, {"Put": {"Item": lookup}}])
     try:
         room = get_room(table, room_id, consistent=True)
-    except RoomNotFoundError:
-        _delete(table, room_id, connection_id)
+        if room["status"] != OPEN:
+            raise RoomClosedError(room_id)
+    except Exception:
+        _undo_connect(table, room_id, connection_id)
         raise
-    if room["status"] != OPEN:
-        _delete(table, room_id, connection_id)
-        raise RoomClosedError(room_id)
     return connection
 
 
@@ -87,6 +91,18 @@ def disconnect(table, connection_id: str) -> str | None:
     room_id = lookup["room_id"]
     _delete(table, room_id, connection_id)
     return room_id
+
+
+def _undo_connect(table, room_id: str, connection_id: str) -> None:
+    """Remove a connection that is being refused, without hiding why it was refused.
+
+    If the delete fails too, the items stay until a send fails with ``GoneException`` or TTL
+    removes them, so it's logged rather than raised.
+    """
+    try:
+        _delete(table, room_id, connection_id)
+    except Exception:
+        logger.warning("couldn't remove refused connection %s", connection_id, exc_info=True)
 
 
 def _delete(table, room_id: str, connection_id: str) -> None:

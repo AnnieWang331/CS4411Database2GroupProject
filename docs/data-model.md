@@ -322,6 +322,10 @@ never hear about the close. So after the write we read the room again, strongly 
 - If it's closed (or expired) by now, we delete both items and refuse the connection.
 - If it's still open, any close comes after our write. The live-update function lists
   connections with a strongly consistent `Query` (pattern 21), so it will see ours.
+- If the second read fails (for example DynamoDB throttles it), we also delete both items and
+  refuse with 503. We can't tell whether the room is still open, so we don't keep a connection we
+  can't vouch for. If that delete fails as well, we log it and still return the original error.
+  The leftover items go away when a send fails with `GoneException`, or through TTL.
 
 The one gap left is a close landing in the few milliseconds before API Gateway finishes accepting
 the connection: a send to a connection that isn't accepted yet fails. That client would see a

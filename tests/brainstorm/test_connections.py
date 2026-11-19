@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 
 from brainstorm import connections, ideas, keys, rooms, ws
 from brainstorm.errors import InvalidInputError, RoomClosedError, RoomNotFoundError
@@ -134,3 +135,43 @@ def test_connect_undoes_itself_if_room_closes_during_connect(table, monkeypatch)
         connections.connect(table, room_id, "c1")
     assert connections.list_connections(table, room_id) == []
     assert connections.disconnect(table, "c1") is None
+
+
+def throttled() -> ClientError:
+    return ClientError({"Error": {"Code": "ProvisionedThroughputExceededException"}}, "GetItem")
+
+
+def test_connect_undoes_itself_if_second_read_fails(table, monkeypatch):
+    room = rooms.create_room(table, "prof", "Topic")
+    room_id = room["room_id"]
+    reads = []
+
+    def get_room_then_throttle(table, room_id, consistent=False):
+        reads.append(room_id)
+        if len(reads) == 2:
+            raise throttled()
+        return rooms.get_room(table, room_id, consistent=consistent)
+
+    monkeypatch.setattr(connections, "get_room", get_room_then_throttle)
+    status = ws.handle(table, ws_event("$connect", "c1", {"room_id": room_id}))["statusCode"]
+    assert status == 503
+    assert connections.list_connections(table, room_id) == []
+    assert connections.disconnect(table, "c1") is None
+
+
+def test_failed_undo_keeps_the_original_error(table, monkeypatch):
+    room = rooms.create_room(table, "prof", "Topic")
+    room_id = room["room_id"]
+    real_write = connections.transact_write
+
+    def close_then_write(table, items):
+        rooms.close_room(table, room_id, "prof")
+        monkeypatch.setattr(connections, "_delete", fail_delete)
+        real_write(table, items)
+
+    def fail_delete(table, room_id, connection_id):
+        raise throttled()
+
+    monkeypatch.setattr(connections, "transact_write", close_then_write)
+    with pytest.raises(RoomClosedError):
+        connections.connect(table, room_id, "c1")
