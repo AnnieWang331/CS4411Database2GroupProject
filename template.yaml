@@ -257,6 +257,14 @@ Resources:
       BatchSize: 25
       MaximumBatchingWindowInSeconds: 0
       FunctionResponseTypes: [ReportBatchItemFailures]
+      # Don't start the function for items that never become a message (connections change every
+      # time a board opens or closes). A record passes if any pattern matches: inserts and updates
+      # by their new image, deletes by their old one. tests/infra keeps this list in line with
+      # stream_events.to_event.
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"dynamodb": {"NewImage": {"entity_type": {"S": [{"anything-but": ["CONNECTION", "CONNECTION_LOOKUP", "VOTE", "ROOM_CODE"]}]}}}}'
+          - Pattern: '{"eventName": ["REMOVE"], "dynamodb": {"OldImage": {"entity_type": {"S": [{"anything-but": ["CONNECTION", "CONNECTION_LOOKUP", "VOTE", "ROOM_CODE"]}]}}}}'
       # A record that keeps failing is split out, retried a few times, then reported to the
       # queue, so it can't block the rest of its shard.
       BisectBatchOnFunctionError: true
