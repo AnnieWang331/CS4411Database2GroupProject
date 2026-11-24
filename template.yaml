@@ -1,14 +1,18 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  CS4411 Group 20 brainstorm board: DynamoDB table, HTTP API Lambda and web client hosting.
-  The WebSocket API and stream Lambda are added in issue #19.
+  CS4411 Group 20 brainstorm board: DynamoDB table, HTTP API Lambda, WebSocket API with the
+  stream Lambda for live updates, and web client hosting.
 
 Parameters:
   TableName:
     Type: String
     Default: BrainstormBoard
     Description: DynamoDB table name (scripts read it from BRAINSTORM_TABLE).
+  WebSocketStageName:
+    Type: String
+    Default: prod
+    Description: Stage of the WebSocket API (part of its URL).
   BudgetEmail:
     Type: String
     Default: ""
@@ -123,6 +127,154 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${AWS::StackName}-api
       RetentionInDays: 14
 
+  # Live updates (#19): WebSocket API for the clients, and the stream Lambda that pushes table
+  # changes to them (docs/data-model.md section 6).
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}-ws
+      ProtocolType: WEBSOCKET
+      # Clients don't send messages; everything that isn't connect/disconnect goes to $default.
+      RouteSelectionExpression: $request.body.action
+
+  WebSocketIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketFunction.Arn}/invocations
+
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $connect
+      Target: !Sub integrations/${WebSocketIntegration}
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $disconnect
+      Target: !Sub integrations/${WebSocketIntegration}
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $default
+      Target: !Sub integrations/${WebSocketIntegration}
+
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: !Ref WebSocketStageName
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 200
+        ThrottlingRateLimit: 100
+
+  WebSocketFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: brainstorm.ws.lambda_handler
+      LoggingConfig:
+        LogGroup: !Ref WebSocketFunctionLogs
+      Environment:
+        Variables:
+          BRAINSTORM_TABLE: !Ref Table
+      Policies:
+        - Statement:
+            # connect: read the room, put the two connection items (a transaction), delete them
+            # again if the room closed meanwhile; disconnect: read the lookup, delete both.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+              Resource: !GetAtt Table.Arn
+
+  WebSocketPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebSocketFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*
+
+  WebSocketFunctionLogs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-ws
+      RetentionInDays: 14
+
+  StreamFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: brainstorm.broadcast.lambda_handler
+      # A batch fans out to every connection of each room it touches.
+      Timeout: 30
+      LoggingConfig:
+        LogGroup: !Ref StreamFunctionLogs
+      Environment:
+        Variables:
+          BRAINSTORM_TABLE: !Ref Table
+          WEBSOCKET_ENDPOINT: !Sub https://${WebSocketApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${WebSocketStageName}
+      Policies:
+        - Statement:
+            # List a room's connections; delete gone ones (both items, in a transaction).
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:DeleteItem
+              Resource: !GetAtt Table.Arn
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${WebSocketStageName}/*/@connections/*
+            - Effect: Allow
+              Action: sqs:SendMessage
+              Resource: !GetAtt StreamFailures.Arn
+      Events:
+        TableStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt Table.StreamArn
+            StartingPosition: LATEST
+            # Latency matters more than throughput: invoke as soon as records arrive, in small
+            # batches.
+            BatchSize: 25
+            MaximumBatchingWindowInSeconds: 0
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            # A record that keeps failing is split out, retried a few times, then sent to the
+            # queue, so it can't block the rest of its shard.
+            BisectBatchOnFunctionError: true
+            MaximumRetryAttempts: 3
+            MaximumRecordAgeInSeconds: 3600
+            DestinationConfig:
+              OnFailure:
+                Type: SQS
+                Destination: !GetAtt StreamFailures.Arn
+
+  StreamFunctionLogs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-stream
+      RetentionInDays: 14
+
+  # Records the stream Lambda gave up on (metadata about the batch, not the records themselves).
+  StreamFailures:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
   # Web client (#8): private S3 bucket served over HTTPS by CloudFront.
   WebBucket:
     Type: AWS::S3::Bucket
@@ -214,6 +366,12 @@ Outputs:
   ApiUrl:
     Description: HTTP API base URL
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  WebSocketUrl:
+    Description: WebSocket API URL for live updates (add ?room_id=<id>)
+    Value: !Sub wss://${WebSocketApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${WebSocketStageName}
+  StreamFailuresQueueUrl:
+    Description: Stream records the live-update function gave up on
+    Value: !Ref StreamFailures
   WebUrl:
     Description: Hosted web client
     Value: !Sub https://${WebDistribution.DomainName}

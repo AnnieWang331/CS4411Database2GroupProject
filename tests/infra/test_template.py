@@ -1,5 +1,6 @@
-"""The SAM template's table must match the one ``schema.py`` creates locally."""
+"""The SAM template: its table must match ``schema.py``, its handlers must exist in ``src/``."""
 
+import importlib
 from pathlib import Path
 
 import yaml
@@ -24,9 +25,12 @@ def _any_tag(loader, _suffix, node):
 _CfnLoader.add_multi_constructor("!", _any_tag)
 
 
+def _resources() -> dict:
+    return yaml.load(TEMPLATE.read_text(), Loader=_CfnLoader)["Resources"]
+
+
 def _table() -> dict:
-    template = yaml.load(TEMPLATE.read_text(), Loader=_CfnLoader)
-    return template["Resources"]["Table"]["Properties"]
+    return _resources()["Table"]["Properties"]
 
 
 def test_table_matches_schema():
@@ -54,3 +58,26 @@ def test_table_ttl_and_encryption():
     }
     # Set explicitly so the report can cite it (AWS owned key).
     assert props["SSESpecification"] == {"SSEEnabled": False}
+
+
+def test_function_handlers_exist():
+    functions = {
+        name: r["Properties"]["Handler"]
+        for name, r in _resources().items()
+        if r["Type"] == "AWS::Serverless::Function"
+    }
+
+    assert set(functions) == {"ApiFunction", "WebSocketFunction", "StreamFunction"}
+    for handler in functions.values():
+        module, func = handler.rsplit(".", 1)
+        assert callable(getattr(importlib.import_module(module), func))
+
+
+def test_stream_mapping_cant_be_blocked_by_one_record():
+    stream = _resources()["StreamFunction"]["Properties"]["Events"]["TableStream"]["Properties"]
+
+    # broadcast.lambda_handler returns batchItemFailures, which only works with this on.
+    assert stream["FunctionResponseTypes"] == ["ReportBatchItemFailures"]
+    assert stream["BisectBatchOnFunctionError"] is True
+    assert stream["MaximumRetryAttempts"] > 0
+    assert stream["DestinationConfig"]["OnFailure"]["Type"] == "SQS"
