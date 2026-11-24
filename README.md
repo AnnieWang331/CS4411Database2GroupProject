@@ -68,8 +68,8 @@ Make a virtual environment and turn it on. For example, run `python -m venv .ven
 pip install -r requirements-dev.txt
 ```
 
-This installs boto3 (the AWS library for Python) plus pytest and ruff, which we use for testing
-and linting.
+This installs boto3 (the AWS library for Python) plus pytest, ruff and cfn-lint, which we use for
+testing and linting.
 
 ### 2. Start DynamoDB Local
 
@@ -113,8 +113,8 @@ pytest
 The tests make their own tables in DynamoDB Local and delete them afterwards. If DynamoDB Local
 isn't running, the tests that need it are skipped instead of failing.
 
-Lint: run `ruff format --check .` and `ruff check .` before you push. The settings (like our
-100-character line length) are in `pyproject.toml`.
+Lint: run `ruff format --check .`, `ruff check .` and `cfn-lint template.yaml` before you push.
+The ruff settings (like our 100-character line length) are in `pyproject.toml`.
 
 GitHub Actions runs the same lint and tests (against DynamoDB Local) on every pull request and on
 every push to `main`; see `.github/workflows/ci.yml`. In CI a test that can't reach DynamoDB Local
@@ -172,9 +172,12 @@ src/brainstorm/        The Python code that talks to DynamoDB
   transactions.py      Writes that change several items at once, with retries
   api.py               The HTTP API (one Lambda handler for every route)
   ws.py                The WebSocket API ($connect and $disconnect)
+  stream_events.py     Turns DynamoDB Stream records into live-update messages
+  broadcast.py         Sends those messages to everyone connected to the room
 scripts/               Scripts to create the table, add demo data, run the API locally and
                        check AWS access
-tests/                 Our tests (they run against DynamoDB Local)
+tests/                 Our tests (most run against DynamoDB Local; tests/infra checks
+                       template.yaml)
 ```
 
 ### Resources
