@@ -157,9 +157,10 @@ To check that your AWS profile can reach DynamoDB, run `python scripts/check_aws
 
 ```text
 docs/data-model.md     How we store the data in DynamoDB, and why
-docs/api.md            The HTTP API: routes, errors and who can call what
+docs/api.md            The HTTP and WebSocket APIs: routes, errors, live-update messages
 docs/project-info/     Course requirements: project outline, grading rubric and our proposal
-template.yaml          The AWS deployment (SAM): table, HTTP API, web hosting
+template.yaml          The AWS deployment (SAM): table, HTTP and WebSocket APIs, live-update
+                       function, web hosting
 samconfig.toml         Settings for `sam deploy` (stack name, region)
 src/brainstorm/        The Python code that talks to DynamoDB
   db.py                Connects to the table (DynamoDB Local or AWS)
@@ -208,7 +209,8 @@ The template creates:
   routes go to a Lambda function running `brainstorm.ws.lambda_handler`.
 - the live-update function (`brainstorm.broadcast.lambda_handler`), which reads the table's
   stream and sends each change to the room's open WebSockets. It gets small batches as soon as
-  records arrive, since latency matters more than throughput here. A record that keeps failing is
+  records arrive, since latency matters more than throughput here, and changes that never become
+  a message (connections, vote markers, join codes) are filtered out before it runs. A record that keeps failing is
   split from its batch, retried 3 times, then reported to an SQS queue (`StreamFailuresQueueUrl`)
   so it can't hold up the rest of the stream. Its IAM role can only read this table's stream,
   query and delete items in the table, and send to this WebSocket API.
