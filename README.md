@@ -159,6 +159,8 @@ To check that your AWS profile can reach DynamoDB, run `python scripts/check_aws
 docs/data-model.md     How we store the data in DynamoDB, and why
 docs/api.md            The HTTP API: routes, errors and who can call what
 docs/project-info/     Course requirements: project outline, grading rubric and our proposal
+template.yaml          The AWS deployment (SAM): table, HTTP API, web hosting
+samconfig.toml         Settings for `sam deploy` (stack name, region)
 src/brainstorm/        The Python code that talks to DynamoDB
   db.py                Connects to the table (DynamoDB Local or AWS)
   keys.py              Builds the PK/SK key values, ids, join codes and timestamps
@@ -179,6 +181,98 @@ tests/                 Our tests (they run against DynamoDB Local)
 
 - [DynamoDB User Guide](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Introduction.html)
 - [Working with DynamoDB](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithDynamo.html)
+
+## Deploying to AWS
+
+You only need this part for the live demo on phones. Everything above works without AWS.
+
+We use **AWS SAM** (Serverless Application Model) for the deployment. SAM is a CloudFormation
+extension for Lambda functions and API Gateway, so the whole stack is one file,
+[`template.yaml`](template.yaml), and one command to create or delete it. We picked it over CDK
+because our backend is Python Lambdas plus one table, and SAM needs no extra language or build
+setup for that.
+
+The template creates:
+
+- the `BrainstormBoard` table, with the same keys, GSI1, Streams and TTL as `create_table.py`
+  (a test checks they match). It uses on-demand billing and is encrypted at rest with an AWS
+  owned key (DynamoDB's default, set explicitly with `SSESpecification`). We didn't use a KMS key
+  because it costs money per request and we don't need to control or audit the key ourselves.
+- an API Gateway HTTP API that sends every request to one Lambda function running
+  `brainstorm.api.lambda_handler`, the same code as `serve_local.py`. That function's IAM role
+  can only use the DynamoDB actions our code needs, on this table and GSI1.
+- a private S3 bucket and a CloudFront distribution that serve the web client over HTTPS.
+  `CORS_ALLOW_ORIGIN` is set to that CloudFront URL, so other websites can't call the API.
+- optionally, a monthly cost budget that emails you at 80% of the limit.
+
+The WebSocket API and live updates are added in #19.
+
+### What you need
+
+- An AWS account and a profile that can create these resources (we use one called `cs4411`)
+- The [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
+  (`pip install aws-sam-cli` works too) and the AWS CLI
+
+### Deploy
+
+```sh
+export AWS_PROFILE=cs4411
+sam build
+sam deploy --parameter-overrides BudgetEmail=you@example.com
+```
+
+The settings are in `samconfig.toml`: the stack is called `brainstorm-board` and goes in
+`ca-central-1`. `sam deploy` shows you the changes and asks before it applies them. The first
+deploy takes a few minutes, mostly for CloudFront. Leave out `--parameter-overrides` if you don't
+want the budget (AWS asks you to confirm the email first). `BudgetLimitUsd=10` changes the limit,
+which is 5 USD by default.
+
+When it finishes, it prints the outputs. `ApiUrl` is the API and `WebUrl` is the web client. You
+can see them again with:
+
+```sh
+aws cloudformation describe-stacks --stack-name brainstorm-board \
+  --query 'Stacks[0].Outputs' --output table
+```
+
+Try the API the same way as locally:
+
+```sh
+curl -X POST -H 'X-User-Id: prof' -d '{"topic": "Indexing"}' <ApiUrl>/rooms
+```
+
+### Upload the web client
+
+Copy the web client's files (`web/`, from #8) to the bucket, then tell CloudFront to drop its
+cached copy:
+
+```sh
+aws s3 sync web/ s3://<WebBucketName> --delete
+aws cloudfront create-invalidation --distribution-id <WebDistributionId> --paths '/*'
+```
+
+Then open `WebUrl` on your phone.
+
+### Add demo data
+
+`seed.py` works against the deployed table too. Make sure `DYNAMODB_ENDPOINT_URL` isn't set,
+otherwise it talks to DynamoDB Local:
+
+```sh
+unset DYNAMODB_ENDPOINT_URL
+AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/seed.py
+```
+
+### Tear down
+
+The bucket has to be empty before CloudFormation can delete it:
+
+```sh
+aws s3 rm s3://<WebBucketName> --recursive
+sam delete
+```
+
+`sam delete` removes everything the template made, including the table and all its data.
 
 ## Group Members
 
