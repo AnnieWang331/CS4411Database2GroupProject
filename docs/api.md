@@ -148,8 +148,9 @@ loses Wi-Fi. A connection that never got cleaned up is removed when a send to it
 `GoneException`, or by TTL when the room expires. Section 4.8 of [data-model.md](data-model.md)
 explains how connect handles a room that closes at the same moment.
 
-API Gateway WebSockets don't run on your own computer, so the local setup will need its own way
-to show live updates.
+The deployed URL is the `WebSocketUrl` output of the stack (the stage is `prod`). API Gateway
+WebSockets don't run on your own computer, so the local setup will need its own way to show live
+updates.
 
 ### Messages
 

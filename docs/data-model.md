@@ -406,8 +406,9 @@ which doesn't call AWS, so it's tested on its own with sample records. The messa
 - **Someone joined again** (PARTICIPANT update, for example a new display name): nothing. Only
   the first join sends `participant_joined`.
 - Vote markers, code items and connection items: nothing to send. Connection items change every
-  time someone opens or closes the board, so the stream trigger should filter them out by
-  `entity_type` instead of starting the function just to ignore them.
+  time someone opens or closes the board, so the stream trigger filters these four entity types
+  out (Lambda *filter criteria* on `entity_type`) instead of starting the function just to ignore
+  them. A vote still gets through as the update to its idea's `vote_count`.
 
 How the function handles a batch of records:
 
@@ -426,6 +427,14 @@ How the function handles a batch of records:
 - If a record fails (a send or a delete errors, or listing the connections fails), the function
   reports it in `batchItemFailures` and Lambda retries it. A retry sends the message again to
   connections that already got it, which the client handles anyway (duplicates, above).
+
+On AWS the trigger (an event source mapping in `template.yaml`) is set up for latency: batches
+of up to 25 records, no batching window, so the function runs as soon as records arrive. A
+record that keeps failing would hold up everything after it on its shard, so the batch is split
+in half to isolate it (`BisectBatchOnFunctionError`), retried 3 times, then reported to an SQS
+queue and skipped. The queue message only names the shard and sequence numbers, not the record.
+When we tested it by breaking the Management API URL, the record was tried 4 times and then
+landed in the queue.
 
 Sending sits behind a small `Sender` interface (send, close). On AWS it's the API Gateway
 Management API (`post_to_connection`, `delete_connection`); the local setup can plug in its own
