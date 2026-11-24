@@ -166,7 +166,7 @@ def test_failed_undo_keeps_the_original_error(table, monkeypatch):
 
     def close_then_write(table, items):
         rooms.close_room(table, room_id, "prof")
-        monkeypatch.setattr(connections, "_delete", fail_delete)
+        monkeypatch.setattr(connections, "remove", fail_delete)
         real_write(table, items)
 
     def fail_delete(table, room_id, connection_id):

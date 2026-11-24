@@ -204,5 +204,6 @@ What the client has to handle:
 - **Missed messages.** A message sent while the socket was reconnecting is lost. After
   reconnecting, the client reloads the board over HTTP.
 - **End of the board.** `room_closed` and `room_expired` mean nothing more will change. The
-  client shows the room as closed and can close the socket.
+  client shows the room as closed. The server closes the socket right after sending either one,
+  so the client shouldn't try to reconnect.
 - **Unknown types.** Ignore any `type` not listed here, so we can add messages later.

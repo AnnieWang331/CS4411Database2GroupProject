@@ -89,7 +89,7 @@ def disconnect(table, connection_id: str) -> str | None:
     if lookup is None:
         return None
     room_id = lookup["room_id"]
-    _delete(table, room_id, connection_id)
+    remove(table, room_id, connection_id)
     return room_id
 
 
@@ -100,13 +100,13 @@ def _undo_connect(table, room_id: str, connection_id: str) -> None:
     removes them, so it's logged rather than raised.
     """
     try:
-        _delete(table, room_id, connection_id)
+        remove(table, room_id, connection_id)
     except Exception:
         logger.warning("couldn't remove refused connection %s", connection_id, exc_info=True)
 
 
-def _delete(table, room_id: str, connection_id: str) -> None:
-    """Delete a connection's room item and lookup item together."""
+def remove(table, room_id: str, connection_id: str) -> None:
+    """Delete a connection's room item and lookup item together (no-op if they're gone)."""
     transact_write(
         table,
         [
@@ -120,11 +120,13 @@ def _delete(table, room_id: str, connection_id: str) -> None:
     )
 
 
-def list_connections(table, room_id: str) -> list[dict[str, Any]]:
+def list_connections(table, room_id: str, include_expired: bool = False) -> list[dict[str, Any]]:
     """Return a room's live connections (pattern 21).
 
     Strongly consistent, so a connection whose write finished before a close is always listed (see
-    ``connect``).
+    ``connect``). ``include_expired`` also returns connections past their TTL that DynamoDB hasn't
+    deleted yet: the broadcaster needs them to send ``room_expired``, which only arrives after the
+    room (and so every connection, which copies its ``expires_at``) has expired.
     """
     items = query_all(
         table,
@@ -132,4 +134,4 @@ def list_connections(table, room_id: str) -> list[dict[str, Any]]:
         & Key("SK").begins_with(keys.CONNECTION_PREFIX),
         ConsistentRead=True,
     )
-    return [item for item in items if is_live(item)]
+    return items if include_expired else [item for item in items if is_live(item)]

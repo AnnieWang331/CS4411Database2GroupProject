@@ -144,6 +144,8 @@ Our code reads these environment variables:
 - `DYNAMODB_ENDPOINT_URL`: where DynamoDB is. Set it to `http://localhost:8000` for DynamoDB
   Local. Leave it unset to use real AWS.
 - `BRAINSTORM_TABLE`: the table name. The default is `BrainstormBoard`.
+- `WEBSOCKET_ENDPOINT`: only for the live-update function on AWS. It's the WebSocket API's
+  connection URL, `https://<api-id>.execute-api.<region>.amazonaws.com/<stage>`.
 - `CORS_ALLOW_ORIGIN`: which website is allowed to call the API from a browser. The default is
   `*` (any site).
 - `AWS_PROFILE` and `AWS_REGION`: which AWS account and region to use. These only matter when
