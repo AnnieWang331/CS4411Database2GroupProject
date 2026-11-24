@@ -1,0 +1,10 @@
+checked_at,room_id,code,past_expiry_s,meta_present,get_room,resolve_code,http_get_room,http_get_code
+2026-11-24T21:38:09.116Z,7a214da4dae647ac9d26cec759008030,DWT4FM,32,True,hidden,hidden,404,404
+2026-11-24T21:38:09.116Z,09ae566d63a04bc78f0b4a1c74a837e6,XCSGVT,31,True,hidden,hidden,404,404
+2026-11-24T21:38:09.116Z,64fc3eeeb4c845db9370dc26b08c4951,ZBK9S4,30,True,hidden,hidden,404,404
+2026-11-24T21:58:46.326Z,7a214da4dae647ac9d26cec759008030,DWT4FM,1269,False,hidden,hidden,404,404
+2026-11-24T21:58:46.326Z,09ae566d63a04bc78f0b4a1c74a837e6,XCSGVT,1268,False,hidden,hidden,404,404
+2026-11-24T21:58:46.326Z,64fc3eeeb4c845db9370dc26b08c4951,ZBK9S4,1267,False,hidden,hidden,404,404
+2026-11-24T22:00:15.572Z,7a214da4dae647ac9d26cec759008030,DWT4FM,1358,False,hidden,hidden,404,404
+2026-11-24T22:00:15.572Z,09ae566d63a04bc78f0b4a1c74a837e6,XCSGVT,1357,False,hidden,hidden,404,404
+2026-11-24T22:00:15.572Z,64fc3eeeb4c845db9370dc26b08c4951,ZBK9S4,1356,False,hidden,hidden,404,404

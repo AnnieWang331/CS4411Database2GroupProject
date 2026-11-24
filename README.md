@@ -175,8 +175,9 @@ src/brainstorm/        The Python code that talks to DynamoDB
   ws.py                The WebSocket API ($connect and $disconnect)
   stream_events.py     Turns DynamoDB Stream records into live-update messages
   broadcast.py         Sends those messages to everyone connected to the room
-scripts/               Scripts to create the table, add demo data, run the API locally and
-                       check AWS access
+scripts/               Scripts to create the table, add demo data, run the API locally,
+                       check AWS access and show TTL deleting rooms (ttl_demo.py)
+benchmarks/results/    Measurements we ran, as CSV (so far the TTL delete delays)
 tests/                 Our tests (most run against DynamoDB Local; tests/infra checks
                        template.yaml)
 ```
@@ -301,6 +302,32 @@ otherwise it talks to DynamoDB Local:
 unset DYNAMODB_ENDPOINT_URL
 AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/seed.py
 ```
+
+### Show TTL deleting rooms
+
+TTL removes a room some time after its `expires_at`, so seeing it takes two steps. `start`
+makes a few rooms that expire in 5 minutes and saves their items to `benchmarks/results/`:
+
+```sh
+AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/ttl_demo.py start
+```
+
+Then run `check` with the run id it printed, as often as you like. It records which items are
+gone, reads the table's stream for their REMOVE records (each delete's time, and whether TTL made
+it), and checks that the API already hides the rooms (`404`) before TTL deletes them. The stream
+only keeps records for 24 hours, so check at least twice a day until everything is gone:
+
+```sh
+AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/ttl_demo.py check <run id> --api-url <ApiUrl>
+```
+
+In our run (`benchmarks/results/ttl-20261124T213237Z-*`) TTL deleted all 27 items 11 to 17
+minutes after they expired. AWS only promises "within a few days", so that's one sample, not a
+guarantee.
+
+DynamoDB Local (3.3.2) didn't delete anything in our test: the items were still there 27 minutes
+after they expired. The script runs locally too (`DYNAMODB_ENDPOINT_URL=http://localhost:8000`),
+and shows that reads hide expired rooms, but the actual deleting can only be seen on AWS.
 
 ### Tear down
 

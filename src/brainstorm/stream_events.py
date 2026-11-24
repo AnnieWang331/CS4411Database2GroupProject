@@ -37,6 +37,27 @@ def _image(record: dict[str, Any], name: str) -> dict[str, Any]:
     return {k: _deserializer.deserialize(v) for k, v in raw.items()}
 
 
+def from_get_records(record: dict[str, Any]) -> dict[str, Any]:
+    """Convert a record from the Streams ``GetRecords`` API to the shape Lambda delivers.
+
+    The two differ: ``GetRecords`` (through boto3) spells the identity ``{"Type", "PrincipalId"}``
+    and gives ``ApproximateCreationDateTime`` as a datetime, while Lambda sends
+    ``{"type", "principalId"}`` and epoch seconds. Code that polls a stream itself (the TTL demo,
+    the local stack) converts first, so ``to_event`` only has to handle Lambda's shape.
+    """
+    record = {**record, "dynamodb": dict(record.get("dynamodb", {}))}
+    identity = record.get("userIdentity")
+    if identity:
+        record["userIdentity"] = {
+            "type": identity.get("Type", identity.get("type")),
+            "principalId": identity.get("PrincipalId", identity.get("principalId")),
+        }
+    created = record["dynamodb"].get("ApproximateCreationDateTime")
+    if hasattr(created, "timestamp"):
+        record["dynamodb"]["ApproximateCreationDateTime"] = int(created.timestamp())
+    return record
+
+
 def is_ttl_delete(record: dict[str, Any]) -> bool:
     """Whether the record is TTL removing an expired item."""
     identity = record.get("userIdentity") or {}

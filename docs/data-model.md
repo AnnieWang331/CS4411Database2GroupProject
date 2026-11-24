@@ -95,7 +95,10 @@ sort key with `=`, `<`, `<=`, `>`, `>=`, `BETWEEN` or `begins_with` [3].
 A few things to know:
 
 - TTL doesn't delete items right on time. It can take a few days [10]. That's why every read
-  checks `expires_at` itself, and every write checks it in its condition.
+  checks `expires_at` itself, and every write checks it in its condition. When we measured it on
+  our table (`scripts/ttl_demo.py`, 3 rooms, 27 items), the deletes came 11 to 17 minutes after
+  `expires_at`, and each room's items all went in the same second. DynamoDB Local hadn't deleted
+  anything 27 minutes after `expires_at`, so locally only the `expires_at` checks can be shown.
 - Reads from a GSI are *eventually consistent*: right after a write, the index might not show the
   change yet [9]. That's fine for an instructor's room list.
 - A `Query` returns at most 1 MB at a time [2]. Our code keeps asking for the next page until
@@ -402,7 +405,10 @@ which doesn't call AWS, so it's tested on its own with sample records. The messa
 - **Room expired** (ROOM removed by TTL): `room_expired`, whether the room was still open or had
   already been closed, so leftover connections still get cleaned up. TTL deletes show up in the
   stream as deletes done by the DynamoDB service itself (`dynamodb.amazonaws.com`) [11]. We skip
-  the TTL deletes for the room's other items.
+  the TTL deletes for the room's other items. Lambda delivers that as
+  `userIdentity: {"type", "principalId"}`, but the Streams `GetRecords` API (what our own pollers
+  use) spells it `{"Type", "PrincipalId"}`, so those convert each record first
+  (`stream_events.from_get_records`).
 - **Someone joined again** (PARTICIPANT update, for example a new display name): nothing. Only
   the first join sends `participant_joined`.
 - Vote markers, code items and connection items: nothing to send. Connection items change every

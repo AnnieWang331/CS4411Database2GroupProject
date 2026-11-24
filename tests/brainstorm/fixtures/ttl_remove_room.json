@@ -1,0 +1,63 @@
+{
+  "awsRegion": "ca-central-1",
+  "dynamodb": {
+    "ApproximateCreationDateTime": 1795557290,
+    "Keys": {
+      "PK": {
+        "S": "ROOM#09ae566d63a04bc78f0b4a1c74a837e6"
+      },
+      "SK": {
+        "S": "META"
+      }
+    },
+    "OldImage": {
+      "GSI1PK": {
+        "S": "USER#prof-ttl-demo"
+      },
+      "GSI1SK": {
+        "S": "ROOM#2026-11-24T21:32:38.602Z#09ae566d63a04bc78f0b4a1c74a837e6"
+      },
+      "PK": {
+        "S": "ROOM#09ae566d63a04bc78f0b4a1c74a837e6"
+      },
+      "SK": {
+        "S": "META"
+      },
+      "code": {
+        "S": "XCSGVT"
+      },
+      "created_at": {
+        "S": "2026-11-24T21:32:38.602Z"
+      },
+      "entity_type": {
+        "S": "ROOM"
+      },
+      "expires_at": {
+        "N": "1795556258"
+      },
+      "owner_id": {
+        "S": "prof-ttl-demo"
+      },
+      "room_id": {
+        "S": "09ae566d63a04bc78f0b4a1c74a837e6"
+      },
+      "status": {
+        "S": "open"
+      },
+      "topic": {
+        "S": "TTL demo room 2"
+      }
+    },
+    "SequenceNumber": "139900001112415678597766",
+    "SizeBytes": 347,
+    "StreamViewType": "NEW_AND_OLD_IMAGES"
+  },
+  "eventID": "3f3bc755d8a86e9358beb0c26255ed55",
+  "eventName": "REMOVE",
+  "eventSource": "aws:dynamodb",
+  "eventVersion": "1.1",
+  "userIdentity": {
+    "principalId": "dynamodb.amazonaws.com",
+    "type": "Service"
+  }
+}
