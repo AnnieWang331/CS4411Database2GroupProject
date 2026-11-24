@@ -234,29 +234,37 @@ Resources:
             - Effect: Allow
               Action: execute-api:ManageConnections
               Resource: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${WebSocketStageName}/*/@connections/*
+            # Read this table's stream only. (SAM's DynamoDB event would attach
+            # AWSLambdaDynamoDBExecutionRole instead, which can read every stream in the account.)
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource: !GetAtt Table.StreamArn
             - Effect: Allow
               Action: sqs:SendMessage
               Resource: !GetAtt StreamFailures.Arn
-      Events:
-        TableStream:
-          Type: DynamoDB
-          Properties:
-            Stream: !GetAtt Table.StreamArn
-            StartingPosition: LATEST
-            # Latency matters more than throughput: invoke as soon as records arrive, in small
-            # batches.
-            BatchSize: 25
-            MaximumBatchingWindowInSeconds: 0
-            FunctionResponseTypes: [ReportBatchItemFailures]
-            # A record that keeps failing is split out, retried a few times, then sent to the
-            # queue, so it can't block the rest of its shard.
-            BisectBatchOnFunctionError: true
-            MaximumRetryAttempts: 3
-            MaximumRecordAgeInSeconds: 3600
-            DestinationConfig:
-              OnFailure:
-                Type: SQS
-                Destination: !GetAtt StreamFailures.Arn
+
+  StreamMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref StreamFunction
+      EventSourceArn: !GetAtt Table.StreamArn
+      StartingPosition: LATEST
+      # Latency matters more than throughput: invoke as soon as records arrive, in small batches.
+      BatchSize: 25
+      MaximumBatchingWindowInSeconds: 0
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      # A record that keeps failing is split out, retried a few times, then reported to the
+      # queue, so it can't block the rest of its shard.
+      BisectBatchOnFunctionError: true
+      MaximumRetryAttempts: 3
+      MaximumRecordAgeInSeconds: 3600
+      DestinationConfig:
+        OnFailure:
+          Destination: !GetAtt StreamFailures.Arn
 
   StreamFunctionLogs:
     Type: AWS::Logs::LogGroup
@@ -266,7 +274,8 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${AWS::StackName}-stream
       RetentionInDays: 14
 
-  # Records the stream Lambda gave up on (metadata about the batch, not the records themselves).
+  # Stream records the live-update function gave up on. Each message says which shard and
+  # sequence numbers failed, not the record itself.
   StreamFailures:
     Type: AWS::SQS::Queue
     DeletionPolicy: Delete

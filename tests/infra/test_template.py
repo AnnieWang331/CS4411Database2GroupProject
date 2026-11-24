@@ -74,10 +74,10 @@ def test_function_handlers_exist():
 
 
 def test_stream_mapping_cant_be_blocked_by_one_record():
-    stream = _resources()["StreamFunction"]["Properties"]["Events"]["TableStream"]["Properties"]
+    stream = _resources()["StreamMapping"]["Properties"]
 
     # broadcast.lambda_handler returns batchItemFailures, which only works with this on.
     assert stream["FunctionResponseTypes"] == ["ReportBatchItemFailures"]
     assert stream["BisectBatchOnFunctionError"] is True
     assert stream["MaximumRetryAttempts"] > 0
-    assert stream["DestinationConfig"]["OnFailure"]["Type"] == "SQS"
+    assert stream["DestinationConfig"]["OnFailure"]["Destination"] == "StreamFailures.Arn"
