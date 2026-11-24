@@ -86,7 +86,7 @@ or none of them do [6].
 | 18 | Delete old rooms | Nothing to call: TTL deletes items after `expires_at` |
 | 19 | Connect a WebSocket to a room | Strongly consistent read of the room (pattern 3), a transaction adds the connection and its lookup item, then the room is read again (4.8) |
 | 20 | Disconnect a WebSocket | `GetItem` on `CONN#<connection_id>` to find the room, then a transaction deletes both items (4.8) |
-| 21 | List a room's connections (for live updates) | Strongly consistent `Query` for sort keys starting with `WS#` |
+| 21 | List a room's connections (for live updates) | Strongly consistent `Query` for sort keys starting with `WS#` (expired ones skipped, except for `room_expired`, see 6) |
 
 There are no `Scan`s. A Scan reads the whole table, which gets slow and expensive as the table
 grows. Every pattern above is a `GetItem` or a `Query` on one partition. A `Query` can match the
@@ -368,10 +368,11 @@ with `GoneException`, and TTL removes whatever is left when the room expires.
   The free tier also includes 2.5 million stream read requests per month, and stream reads done
   by a Lambda trigger aren't charged at all [14].
 
-## 6. Live updates with Streams (planned)
+## 6. Live updates with Streams
 
-Later, a Lambda function will read the table's stream and send changes to everyone connected to
-that room over a WebSocket. It will use each record's `PK` (`ROOM#<room_id>`) to find the room.
+A Lambda function (`lambda_handler` in `src/brainstorm/broadcast.py`) reads the table's stream and
+sends changes to everyone connected to that room over a WebSocket. It uses each record's `PK`
+(`ROOM#<room_id>`) to find the room.
 
 Streams only keep changes in order for each single item, not for a whole room [12]. The changes
 from one transaction can also show up at different times or mixed in with other changes [6]. So
@@ -402,8 +403,27 @@ which doesn't call AWS, so it's tested on its own with sample records. The messa
   time someone opens or closes the board, so the stream trigger should filter them out by
   `entity_type` instead of starting the function just to ignore them.
 
-The function finds who to send to with pattern 21. If sending to a connection fails because it's
-gone, the function deletes that connection (4.8).
+How the function handles a batch of records:
+
+- It groups the batch's messages by room and lists each room's connections once (pattern 21), not
+  once per record. Within a room, messages go out in stream order.
+- If sending to a connection fails because it's gone (`GoneException`), it deletes that connection
+  (4.8) and doesn't try it again for the rest of the batch.
+- After sending `room_closed` or `room_expired`, it closes every connection in the room and deletes
+  its two items. `close_room` doesn't delete them itself: that would be one delete per student in
+  the close transaction (over the 100-item limit in a big class) and it would bring back the
+  conflicts connect avoids (4.8). Without this, any later change in the partition would still go
+  out to the old sockets until TTL removed them.
+- For `room_expired` it also lists connections that are past their TTL. Connections copy the
+  room's `expires_at`, so by the time TTL deletes the room they have all expired, and pattern 21
+  normally skips expired items.
+- If a record fails (a send or a delete errors, or listing the connections fails), the function
+  reports it in `batchItemFailures` and Lambda retries it. A retry sends the message again to
+  connections that already got it, which the client handles anyway (duplicates, above).
+
+Sending sits behind a small `Sender` interface (send, close). On AWS it's the API Gateway
+Management API (`post_to_connection`, `delete_connection`); the local setup can plug in its own
+WebSocket server and reuse the rest.
 
 A write that doesn't actually change anything doesn't create a stream record [12].
 
