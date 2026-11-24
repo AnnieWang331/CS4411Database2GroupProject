@@ -204,11 +204,17 @@ The template creates:
 - an API Gateway HTTP API that sends every request to one Lambda function running
   `brainstorm.api.lambda_handler`, the same code as `serve_local.py`. That function's IAM role
   can only use the DynamoDB actions our code needs, on this table and GSI1.
+- an API Gateway WebSocket API for live updates. Its `$connect`, `$disconnect` and `$default`
+  routes go to a Lambda function running `brainstorm.ws.lambda_handler`.
+- the live-update function (`brainstorm.broadcast.lambda_handler`), which reads the table's
+  stream and sends each change to the room's open WebSockets. It gets small batches as soon as
+  records arrive, since latency matters more than throughput here. A record that keeps failing is
+  split from its batch, retried 3 times, then reported to an SQS queue (`StreamFailuresQueueUrl`)
+  so it can't hold up the rest of the stream. Its IAM role can only read this table's stream,
+  query and delete items in the table, and send to this WebSocket API.
 - a private S3 bucket and a CloudFront distribution that serve the web client over HTTPS.
   `CORS_ALLOW_ORIGIN` is set to that CloudFront URL, so other websites can't call the API.
 - optionally, a monthly cost budget that emails you at 80% of the limit.
-
-The WebSocket API and live updates are added in #19.
 
 ### What you need
 
@@ -230,8 +236,8 @@ deploy takes a few minutes, mostly for CloudFront. Leave out `--parameter-overri
 want the budget (AWS asks you to confirm the email first). `BudgetLimitUsd=10` changes the limit,
 which is 5 USD by default.
 
-When it finishes, it prints the outputs. `ApiUrl` is the API and `WebUrl` is the web client. You
-can see them again with:
+When it finishes, it prints the outputs. `ApiUrl` is the API, `WebSocketUrl` is for live updates
+and `WebUrl` is the web client. You can see them again with:
 
 ```sh
 aws cloudformation describe-stacks --stack-name brainstorm-board \
@@ -247,6 +253,30 @@ curl -X POST -H 'X-User-Id: prof' -d '{"topic": "Indexing"}' <ApiUrl>/rooms
 Opening `ApiUrl` itself in a browser only gives a `not_found` error, because the API has no page
 at `/`. Use a route from [docs/api.md](docs/api.md), like `<ApiUrl>/codes/<code>`. `WebUrl` shows
 an S3 `AccessDenied` error until you upload the web client (next step).
+
+### Try live updates
+
+Open a WebSocket on a room with [wscat](https://github.com/websockets/wscat) (needs Node.js),
+then post an idea from a second terminal:
+
+```sh
+npx wscat -c '<WebSocketUrl>?room_id=<room_id>'
+curl -X POST -H 'X-User-Id: stu' -d '{"display_name": "Ann", "body": "Hi"}' \
+  <ApiUrl>/rooms/<room_id>/ideas
+```
+
+An `idea_added` message shows up in wscat about half a second later. The message types are in
+[docs/api.md](docs/api.md#messages). A newly deployed stack can take a few minutes before the
+stream starts delivering anything.
+
+If live updates stop, look at the function's logs and the failure queue:
+
+```sh
+sam logs --stack-name brainstorm-board -n StreamFunction --tail
+aws sqs receive-message --queue-url <StreamFailuresQueueUrl>
+```
+
+A queue message only says which shard and sequence numbers failed, not the record itself.
 
 ### Upload the web client
 
