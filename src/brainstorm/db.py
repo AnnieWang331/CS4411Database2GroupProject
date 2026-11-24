@@ -25,20 +25,31 @@ def endpoint_url() -> str | None:
     return os.environ.get("DYNAMODB_ENDPOINT_URL") or None
 
 
-def resource(endpoint: str | None = None):
-    """Create a DynamoDB service resource for AWS or, given an endpoint, DynamoDB Local."""
+def _local_settings(endpoint: str | None) -> dict[str, str]:
+    """boto3 arguments for DynamoDB Local, or none for AWS.
+
+    DynamoDB Local accepts any credentials and region; supply defaults so it works without a
+    configured AWS profile (for example, on a grader's machine).
+    """
     endpoint = endpoint or endpoint_url()
     if endpoint is None:
-        return boto3.resource("dynamodb")
-    # DynamoDB Local accepts any credentials and region; supply defaults so it works without a
-    # configured AWS profile (for example, on a grader's machine).
-    return boto3.resource(
-        "dynamodb",
-        endpoint_url=endpoint,
-        region_name=os.environ.get("AWS_REGION", LOCAL_REGION),
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "local"),
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "local"),
-    )
+        return {}
+    return {
+        "endpoint_url": endpoint,
+        "region_name": os.environ.get("AWS_REGION", LOCAL_REGION),
+        "aws_access_key_id": os.environ.get("AWS_ACCESS_KEY_ID", "local"),
+        "aws_secret_access_key": os.environ.get("AWS_SECRET_ACCESS_KEY", "local"),
+    }
+
+
+def resource(endpoint: str | None = None):
+    """Create a DynamoDB service resource for AWS or, given an endpoint, DynamoDB Local."""
+    return boto3.resource("dynamodb", **_local_settings(endpoint))
+
+
+def streams_client(endpoint: str | None = None):
+    """Create a DynamoDB Streams client for AWS or, given an endpoint, DynamoDB Local."""
+    return boto3.client("dynamodbstreams", **_local_settings(endpoint))
 
 
 def table(name: str | None = None, endpoint: str | None = None):
