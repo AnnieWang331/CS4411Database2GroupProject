@@ -1,9 +1,12 @@
 """Serve the brainstorm HTTP API on localhost, so the frontend can run without AWS.
 
 Usage: python scripts/serve_local.py [--endpoint-url URL] [--table NAME] [--port N]
+                                     [--ws-port N] [--no-live]
 
 Each request is turned into the same API Gateway (HTTP API, payload 2.0) event that Lambda would
 get and passed to ``brainstorm.api.handle``, so local runs and AWS share one code path.
+It also starts the live-update WebSocket server and stream poller from ``live_local.py`` (on
+``--ws-port``, 3001 by default) unless ``--no-live`` is given.
 """
 
 import argparse
@@ -15,6 +18,9 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # live_local.py, when imported by tests
+
+from live_local import LiveStack  # noqa: E402
 
 from brainstorm import api, db  # noqa: E402 - needs the sys.path entry above
 
@@ -66,8 +72,15 @@ def main() -> int:
     parser.add_argument("--endpoint-url", default=db.endpoint_url(), help="e.g. localhost:8000")
     parser.add_argument("--table", default=db.table_name(), help="table name")
     parser.add_argument("--port", type=int, default=3000, help="port to listen on")
+    parser.add_argument("--ws-port", type=int, default=3001, help="port for live updates")
+    parser.add_argument("--no-live", action="store_true", help="don't start live updates")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
+
+    live = None
+    if not args.no_live:
+        live = LiveStack(args.table, args.endpoint_url, args.ws_port).start()
+        print(f"Live updates on ws://127.0.0.1:{live.port}/?room_id=<room_id>")
 
     # One request at a time, like a Lambda container; boto3 resources aren't thread-safe.
     server = HTTPServer(
@@ -80,6 +93,8 @@ def main() -> int:
         pass
     finally:
         server.server_close()
+        if live is not None:
+            live.stop()
     return 0
 
 
