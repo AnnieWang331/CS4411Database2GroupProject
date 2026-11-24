@@ -29,6 +29,8 @@ jobs:
         run: ruff format --check --diff .
       - name: ruff check
         run: ruff check --output-format=github .
+      - name: cfn-lint
+        run: cfn-lint template.yaml
 
   test:
     runs-on: ubuntu-latest
