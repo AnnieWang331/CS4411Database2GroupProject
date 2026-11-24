@@ -195,6 +195,12 @@ Some choices we made:
 - **Streams:** turned on with `NEW_AND_OLD_IMAGES`, so every change record includes the item
   before and after the change [12]. We'll use this for live updates. This setting can't be changed
   after the stream is created [12].
+- **Encryption at rest:** DynamoDB always encrypts tables at rest. On AWS (`template.yaml`) we
+  set `SSESpecification` to `SSEEnabled: false`, which means the default *AWS owned key*. The
+  other options are the AWS managed KMS key (`aws/dynamodb`) or our own KMS key, which cost money
+  per request and are only worth it if you need to control or audit who uses the key. We don't.
+- **On AWS:** `template.yaml` creates the table with exactly these settings, and
+  `tests/infra/test_template.py` checks that it matches `schema.py`.
 
 We thought about a second index (GSI2) sorted by `vote_count` to get the top-voted ideas. We
 decided against it: every vote would change the index key, which costs two extra index writes on
