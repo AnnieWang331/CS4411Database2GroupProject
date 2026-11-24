@@ -175,8 +175,9 @@ src/brainstorm/        The Python code that talks to DynamoDB
   ws.py                The WebSocket API ($connect and $disconnect)
   stream_events.py     Turns DynamoDB Stream records into live-update messages
   broadcast.py         Sends those messages to everyone connected to the room
-scripts/               Scripts to create the table, add demo data, run the API locally and
-                       check AWS access
+scripts/               Scripts to create the table, add demo data, run the API locally,
+                       check AWS access and show TTL deleting rooms (ttl_demo.py)
+benchmarks/results/    Measurements we ran, as CSV (so far the TTL delete delays)
 tests/                 Our tests (most run against DynamoDB Local; tests/infra checks
                        template.yaml)
 ```
