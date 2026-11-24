@@ -1,11 +1,14 @@
 """Tests for mapping DynamoDB Streams records to live-update events (no DynamoDB needed)."""
 
+import json
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from boto3.dynamodb.types import TypeSerializer
 
 from brainstorm import keys
-from brainstorm.stream_events import to_event
+from brainstorm.stream_events import from_get_records, is_ttl_delete, to_event
 
 ROOM_ID = "01JAB3K9"
 PK = keys.room_pk(ROOM_ID)
@@ -13,6 +16,8 @@ TS = "2026-10-18T14:05:31.120Z"
 EXPIRES = 1761055200
 IDEA_SK = keys.idea_sk(TS, "01JAB4QX")
 TTL_IDENTITY = {"type": "Service", "principalId": "dynamodb.amazonaws.com"}
+# A real TTL delete of a room's META item, captured on AWS by scripts/ttl_demo.py (#18).
+REAL_TTL_REMOVE = Path(__file__).parent / "fixtures" / "ttl_remove_room.json"
 HIDDEN = {"PK", "SK", "GSI1PK", "GSI1SK", "owner_id"}
 
 _serializer = TypeSerializer()
@@ -247,3 +252,31 @@ def test_skipped_records():
 def test_non_ttl_service_remove_of_room_is_skipped():
     identity = {"type": "Service", "principalId": "other.amazonaws.com"}
     assert to_event(record("REMOVE", old=room(), identity=identity)) is None
+
+
+def test_real_ttl_delete_from_aws_is_room_expired():
+    real = json.loads(REAL_TTL_REMOVE.read_text())
+    room_id = keys.room_id_from_pk(real["dynamodb"]["Keys"]["PK"]["S"])
+
+    assert is_ttl_delete(real)
+    assert to_event(real) == {"type": "room_expired", "room_id": room_id}
+
+
+def test_get_records_shape_is_converted_to_lambdas():
+    # What boto3's dynamodbstreams.get_records returns for a TTL delete.
+    polled = record("REMOVE", old=room())
+    polled["userIdentity"] = {"Type": "Service", "PrincipalId": "dynamodb.amazonaws.com"}
+    polled["dynamodb"]["ApproximateCreationDateTime"] = datetime(2026, 11, 24, 21, 48, tzinfo=UTC)
+
+    assert not is_ttl_delete(polled)
+    converted = from_get_records(polled)
+    assert converted["userIdentity"] == TTL_IDENTITY
+    assert converted["dynamodb"]["ApproximateCreationDateTime"] == 1795556880
+    assert to_event(converted) == {"type": "room_expired", "room_id": ROOM_ID}
+    assert "Type" in polled["userIdentity"]  # the input isn't changed
+
+
+def test_lambda_shape_passes_through_unchanged():
+    delivered = record("REMOVE", old=room(), identity=TTL_IDENTITY)
+
+    assert from_get_records(delivered) == delivered

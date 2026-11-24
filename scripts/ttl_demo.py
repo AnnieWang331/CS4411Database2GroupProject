@@ -35,7 +35,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from brainstorm import db, ideas, keys, rooms  # noqa: E402 - needs the sys.path entry above
 from brainstorm.errors import RoomNotFoundError  # noqa: E402
-from brainstorm.stream_events import is_ttl_delete  # noqa: E402
+from brainstorm.stream_events import (  # noqa: E402
+    TTL_PRINCIPAL,
+    from_get_records,
+    is_ttl_delete,
+)
 
 RESULTS = ROOT / "benchmarks" / "results"
 INSTRUCTOR = "prof-ttl-demo"
@@ -228,8 +232,9 @@ def check(table, streams, run_id: str, api_url: str | None) -> None:
     append_csv(files["reads"], READ_FIELDS, reads)
 
     by_key = {(row["pk"], row["sk"]): row for row in items}
+    # Saved in the shape Lambda delivers, so a record can be used as a test fixture as it is.
     removes = [
-        r
+        from_get_records(r)
         for r in read_stream(streams, table.latest_stream_arn)
         if r["eventName"] == "REMOVE" and record_key(r) in by_key
     ]
@@ -237,7 +242,7 @@ def check(table, streams, run_id: str, api_url: str | None) -> None:
     saved = set(read_lines(files["records"]))
     with files["records"].open("a") as out:
         for record in removes:
-            line = json.dumps(record, default=str, sort_keys=True)
+            line = json.dumps(record, sort_keys=True)
             if line not in saved:
                 saved.add(line)
                 out.write(line + "\n")
@@ -245,8 +250,8 @@ def check(table, streams, run_id: str, api_url: str | None) -> None:
             deleted = record["dynamodb"]["ApproximateCreationDateTime"]
             deletes[(row["pk"], row["sk"])] = {
                 **{f: row[f] for f in ["pk", "sk", "entity_type", "expires_at"]},
-                "deleted_at": keys.iso(deleted.astimezone(UTC)),
-                "delay_s": keys.epoch(deleted) - row["expires_at"],
+                "deleted_at": keys.iso(datetime.fromtimestamp(deleted, UTC)),
+                "delay_s": deleted - row["expires_at"],
                 "ttl_delete": is_ttl_delete(record),
             }
     write_csv(files["deletes"], DELETE_FIELDS, sorted(deletes.values(), key=lambda d: d["delay_s"]))
@@ -258,7 +263,9 @@ def check(table, streams, run_id: str, api_url: str | None) -> None:
     )
     if deletes:
         delays = sorted(int(d["delay_s"]) for d in deletes.values())
+        ttl = sum(str(d["ttl_delete"]) == "True" for d in deletes.values())
         print(f"  delete delay after expires_at: min {delays[0]}s, max {delays[-1]}s")
+        print(f"  {ttl}/{len(deletes)} made by TTL (userIdentity {TTL_PRINCIPAL})")
     for r in reads:
         http = f", HTTP room {r['http_get_room']} code {r['http_get_code']}" if api_url else ""
         print(
