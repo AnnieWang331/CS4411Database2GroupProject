@@ -244,6 +244,10 @@ Try the API the same way as locally:
 curl -X POST -H 'X-User-Id: prof' -d '{"topic": "Indexing"}' <ApiUrl>/rooms
 ```
 
+Opening `ApiUrl` itself in a browser only gives a `not_found` error, because the API has no page
+at `/`. Use a route from [docs/api.md](docs/api.md), like `<ApiUrl>/codes/<code>`. `WebUrl` shows
+an S3 `AccessDenied` error until you upload the web client (next step).
+
 ### Upload the web client
 
 Copy the web client's files (`web/`, from #8) to the bucket, then tell CloudFront to drop its
