@@ -93,7 +93,7 @@ python scripts/seed.py
 The first line points our scripts at DynamoDB Local instead of AWS.
 
 `create_table.py` creates our `BrainstormBoard` table. It also sets up a secondary index (GSI1)
-for listing an instructor's rooms, turns on DynamoDB Streams (which we'll use for live updates),
+for listing an instructor's rooms, turns on DynamoDB Streams (which the live updates read from),
 and turns on Time to Live (TTL) so old rooms delete themselves. If you want to start over, add
 `--recreate` to delete the local table and make it again.
 

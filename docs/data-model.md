@@ -196,7 +196,7 @@ Some choices we made:
 - **TTL:** turned on for `expires_at`. It has to be a number; items where it isn't are ignored
   [10].
 - **Streams:** turned on with `NEW_AND_OLD_IMAGES`, so every change record includes the item
-  before and after the change [12]. We'll use this for live updates. This setting can't be changed
+  before and after the change [12]. The live updates (section 6) read it. This setting can't be changed
   after the stream is created [12].
 - **Encryption at rest:** DynamoDB always encrypts tables at rest. On AWS (`template.yaml`) we
   set `SSESpecification` to `SSEEnabled: false`, which means the default *AWS owned key*. The
