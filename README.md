@@ -226,8 +226,12 @@ src/brainstorm/        The Python code that talks to DynamoDB
   broadcast.py         Sends those messages to everyone connected to the room
 web/                   The web client (plain HTML, CSS and JavaScript, no build step)
   config.js            Where the HTTP and WebSocket APIs are
+  css/style.css        The styles (colours and sizes are at the top)
+  js/app.js            Picks the screen to show from the URL (#/, #/room/..., #/host)
   js/api.js            Calls the HTTP API and keeps this browser's user id
+  js/dom.js            Small helpers for building the page
   js/host.js           Instructor screens: start a room, show its code, close it
+  js/student.js        Student screens: join by code, then post, vote and comment
 scripts/               Scripts to create the table, add demo data, run the API and live
                        updates locally (live_local.py), check AWS access, show TTL
                        deleting rooms (ttl_demo.py) and upload the web client (deploy_web.py)

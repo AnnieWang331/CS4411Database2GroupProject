@@ -100,7 +100,7 @@ conflicts. `transact_write` retries those with backoff, and `busy` means it stil
 
 ## CORS
 
-The browser client will be served from a different origin than the API, so every response
+The web client is served from a different origin than the API, so every response
 includes `Access-Control-Allow-*` headers and `OPTIONS` requests get an empty `204`. The allowed
 origin is `*` unless the `CORS_ALLOW_ORIGIN` environment variable says otherwise.
 On AWS, `template.yaml` sets it to the CloudFront URL of the web client, so only our own page
