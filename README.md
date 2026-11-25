@@ -68,8 +68,8 @@ Make a virtual environment and turn it on. For example, run `python -m venv .ven
 pip install -r requirements-dev.txt
 ```
 
-This installs boto3 (the AWS library for Python) plus pytest, ruff and cfn-lint, which we use for
-testing and linting.
+This installs boto3 (the AWS library for Python) and websockets (for live updates on your own
+computer), plus pytest, ruff and cfn-lint, which we use for testing and linting.
 
 ### 2. Start DynamoDB Local
 
@@ -137,6 +137,32 @@ curl http://127.0.0.1:3000/codes/<code from the reply>
 
 Every route and error code is listed in [docs/api.md](docs/api.md).
 
+### 6. Watch live updates
+
+`serve_local.py` also starts the live updates, on `ws://127.0.0.1:3001` (use `--ws-port` to
+change it, or `--no-live` to turn them off). On AWS, API Gateway holds the WebSockets and a
+Lambda function reads the table's stream. Neither of those runs on your computer, so
+`scripts/live_local.py` does both jobs: it runs a small WebSocket server, and it reads DynamoDB
+Local's stream every 0.2 seconds. It calls the same `$connect`/`$disconnect` code and the same
+broadcaster as AWS. The only difference is the last step: it writes to its own sockets instead
+of calling API Gateway.
+
+Open a WebSocket on a room (with [wscat](https://github.com/websockets/wscat), which needs
+Node.js, or `python -m websockets`), then post an idea from a second terminal:
+
+```sh
+python -m websockets 'ws://127.0.0.1:3001/?room_id=<room_id>'
+curl -X POST -H 'X-User-Id: stu' -d '{"display_name": "Ann", "body": "Hi"}' \
+  http://127.0.0.1:3000/rooms/<room_id>/ideas
+```
+
+An `idea_added` message shows up right away. Votes, comments, joins and closing the room send
+messages too (see [docs/api.md](docs/api.md#messages)). A room that doesn't exist or is closed
+refuses the socket, the same as on AWS.
+
+The poller only sends changes made after it started. If you run `create_table.py --recreate`,
+restart `serve_local.py` too, since the new table has a new stream.
+
 ### Settings
 
 Our code reads these environment variables:
@@ -175,8 +201,9 @@ src/brainstorm/        The Python code that talks to DynamoDB
   ws.py                The WebSocket API ($connect and $disconnect)
   stream_events.py     Turns DynamoDB Stream records into live-update messages
   broadcast.py         Sends those messages to everyone connected to the room
-scripts/               Scripts to create the table, add demo data, run the API locally,
-                       check AWS access and show TTL deleting rooms (ttl_demo.py)
+scripts/               Scripts to create the table, add demo data, run the API and live
+                       updates locally (live_local.py), check AWS access and show TTL
+                       deleting rooms (ttl_demo.py)
 benchmarks/results/    Measurements we ran, as CSV (so far the TTL delete delays)
 tests/                 Our tests (most run against DynamoDB Local; tests/infra checks
                        template.yaml)

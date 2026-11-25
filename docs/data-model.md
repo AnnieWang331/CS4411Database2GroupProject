@@ -443,8 +443,14 @@ When we tested it by breaking the Management API URL, the record was tried 4 tim
 landed in the queue.
 
 Sending sits behind a small `Sender` interface (send, close). On AWS it's the API Gateway
-Management API (`post_to_connection`, `delete_connection`); the local setup can plug in its own
-WebSocket server and reuse the rest.
+Management API (`post_to_connection`, `delete_connection`). Locally (`scripts/live_local.py`) it
+writes to the sockets of a small WebSocket server, and a loop stands in for the Lambda trigger:
+it reads DynamoDB Local's stream with `GetRecords` every 0.2 seconds, converts each record
+(`from_get_records`) and calls the same `broadcast`. It starts each shard at `LATEST`, so only
+changes from then on are sent, and it only logs a failed record instead of retrying it: a send
+fails locally only when the socket closed, and that connection is deleted anyway. A connection is
+stored during the WebSocket handshake, before the socket can take messages, so the local sender
+holds messages for it until the socket opens instead of reporting it gone.
 
 A write that doesn't actually change anything doesn't create a stream record [12].
 

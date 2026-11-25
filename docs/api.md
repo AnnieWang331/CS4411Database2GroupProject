@@ -149,8 +149,10 @@ loses Wi-Fi. A connection that never got cleaned up is removed when a send to it
 explains how connect handles a room that closes at the same moment.
 
 The deployed URL is the `WebSocketUrl` output of the stack (the stage is `prod`). API Gateway
-WebSockets don't run on your own computer, so the local setup will need its own way to show live
-updates.
+WebSockets don't run on your own computer, so locally `scripts/serve_local.py` starts a stand-in
+at `ws://127.0.0.1:3001/?room_id=<room_id>` (`scripts/live_local.py`). It runs the same
+`ws.handle` for connect and disconnect, so it refuses sockets with the same statuses and stores
+connections the same way. A browser sees the same messages from both.
 
 ### Messages
 
