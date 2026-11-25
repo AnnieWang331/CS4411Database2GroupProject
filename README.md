@@ -163,6 +163,23 @@ refuses the socket, the same as on AWS.
 The poller only sends changes made after it started. If you run `create_table.py --recreate`,
 restart `serve_local.py` too, since the new table has a new stream.
 
+### 7. Open the web client
+
+The web client is plain HTML, CSS and JavaScript in `web/`, so there's nothing to build or
+install. Keep `serve_local.py` running and serve the folder from a second terminal:
+
+```sh
+python -m http.server 8080 -b 127.0.0.1 -d web
+```
+
+Open <http://127.0.0.1:8080/#/host> to start a room. You get a join code to put on the
+projector, a list of your rooms, and a button to close each one. The browser makes up a user id
+the first time and keeps it in `localStorage`, so your rooms are still there after a reload.
+Another browser (or a private window) counts as a different person.
+
+`web/config.js` says where the APIs are. It points at `serve_local.py`'s ports, so you only need
+to change it if you used `--port` or `--ws-port`.
+
 ### Settings
 
 Our code reads these environment variables:
@@ -201,9 +218,13 @@ src/brainstorm/        The Python code that talks to DynamoDB
   ws.py                The WebSocket API ($connect and $disconnect)
   stream_events.py     Turns DynamoDB Stream records into live-update messages
   broadcast.py         Sends those messages to everyone connected to the room
+web/                   The web client (plain HTML, CSS and JavaScript, no build step)
+  config.js            Where the HTTP and WebSocket APIs are
+  js/api.js            Calls the HTTP API and keeps this browser's user id
+  js/host.js           Instructor screens: start a room, show its code, close it
 scripts/               Scripts to create the table, add demo data, run the API and live
-                       updates locally (live_local.py), check AWS access and show TTL
-                       deleting rooms (ttl_demo.py)
+                       updates locally (live_local.py), check AWS access, show TTL
+                       deleting rooms (ttl_demo.py) and upload the web client (deploy_web.py)
 benchmarks/results/    Measurements we ran, as CSV (so far the TTL delete delays)
 tests/                 Our tests (most run against DynamoDB Local; tests/infra checks
                        template.yaml)
@@ -310,15 +331,19 @@ A queue message only says which shard and sequence numbers failed, not the recor
 
 ### Upload the web client
 
-Copy the web client's files (`web/`, from #8) to the bucket, then tell CloudFront to drop its
-cached copy:
-
 ```sh
-aws s3 sync web/ s3://<WebBucketName> --delete
-aws cloudfront create-invalidation --distribution-id <WebDistributionId> --paths '/*'
+python scripts/deploy_web.py --dry-run   # list what it would upload
+python scripts/deploy_web.py
 ```
 
-Then open `WebUrl` on your phone.
+This reads the stack's outputs, uploads `web/` to the bucket and tells CloudFront to drop its
+cached copy. It doesn't upload `web/config.js` as it is, since that points at your own computer.
+It writes a new one with the stack's `ApiUrl` and `WebSocketUrl` instead. Files that aren't part
+of the site (`node_modules/`, `package.json`, dotfiles) are skipped. Use `--stack` if you named
+the stack something else.
+
+Then open `<WebUrl>/#/host` on a laptop and `WebUrl` on your phone. It can take a few minutes
+before CloudFront serves the new files.
 
 ### Add demo data
 
