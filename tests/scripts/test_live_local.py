@@ -119,10 +119,10 @@ def recv_type(sock, event_type: str) -> dict:
     raise AssertionError(f"no {event_type} event")
 
 
-def wait_for_connections(table, room_id: str, count: int) -> list[dict]:
+def wait_for_connections(table, room_id: str, count: int, **kwargs) -> list[dict]:
     deadline = time.monotonic() + TIMEOUT_S
     while time.monotonic() < deadline:
-        listed = connections.list_connections(table, room_id)
+        listed = connections.list_connections(table, room_id, **kwargs)
         if len(listed) == count:
             return listed
         time.sleep(0.05)
@@ -148,7 +148,8 @@ def test_two_sockets_see_ideas_votes_and_close(table, live, room):
             recv_type(sock, "room_closed")
             with pytest.raises(ConnectionClosed):
                 sock.recv(timeout=TIMEOUT_S)
-    assert connections.list_connections(table, rid, include_expired=True) == []
+    # The broadcaster closes each socket and then deletes its items, so the delete can lag a bit.
+    wait_for_connections(table, rid, 0, include_expired=True)
 
 
 def test_closing_a_socket_deletes_its_connection(table, live, room):
