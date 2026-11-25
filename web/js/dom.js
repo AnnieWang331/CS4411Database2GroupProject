@@ -26,6 +26,13 @@ export function formatWhen(value) {
   return when.format(date);
 }
 
+const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+// "2:30 p.m." from an ISO timestamp or a Date. Rooms last a day, so the time is enough.
+export function formatTime(value) {
+  return time.format(value instanceof Date ? value : new Date(value));
+}
+
 // Run an async action with its button disabled, and show any error in `alert`.
 export async function busy(button, alert, action) {
   button.disabled = true;

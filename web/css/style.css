@@ -456,3 +456,326 @@ ol {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* ---- Join code entry ---- */
+
+.input-code {
+  flex: 0 1 12rem;
+  font-size: var(--step-2);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.input-code::placeholder {
+  letter-spacing: normal;
+}
+
+/* ---- Board (student view) ----
+   Ideas are rows of marker text with a vote box on the left, ruled off like lines on the
+   board. No cards. */
+
+.page-board .masthead {
+  align-items: center;
+  padding-bottom: 1.5rem;
+}
+
+.refresh {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
+.board-topic {
+  overflow-wrap: anywhere;
+}
+
+.board-head .room-meta {
+  margin-top: 0.5rem;
+  font-size: var(--step-0);
+}
+
+.board-head strong {
+  color: var(--ink);
+}
+
+.banner {
+  margin-top: 1.25rem;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid var(--ink-soft);
+  background: var(--paper);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.write,
+.page-board .section {
+  margin-top: 2.5rem;
+}
+
+.write:empty {
+  display: none;
+}
+
+.compose,
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.compose label,
+.comment-form label {
+  font-weight: 600;
+}
+
+.textarea {
+  flex: none;
+  width: 100%;
+  font-size: var(--step-0);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.compose .textarea {
+  font-size: var(--step-1);
+}
+
+.compose-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.counter {
+  margin-right: auto;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.counter-low {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.button-link {
+  font: inherit;
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  padding: 0.5rem 0.25rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.list-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Two-way sort switch: radio buttons drawn as one segmented control. */
+.sort {
+  display: inline-flex;
+  margin: 0;
+  padding: 2px;
+  border: 2px solid var(--ghost);
+  border-radius: 0.5rem;
+  background: var(--paper);
+}
+
+.sort label {
+  position: relative;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.35rem;
+  font-weight: 600;
+  font-size: var(--step--1);
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+
+.sort input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sort label:has(input:checked) {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sort label:has(input:focus-visible) {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.ideas {
+  list-style: none;
+  padding: 0;
+  margin-top: 1rem;
+  border-top: 2px solid var(--ghost);
+}
+
+.idea {
+  display: grid;
+  grid-template-columns: 3.25rem 1fr;
+  gap: 1rem;
+  padding: 1.1rem 0;
+  border-bottom: 2px solid var(--ghost);
+}
+
+.idea-main {
+  min-width: 0;
+}
+
+.idea-body {
+  font-size: var(--step-1);
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.byline {
+  margin-top: 0.25rem;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
+/* Vote box: an up-arrow over the count. Filled blue once you've voted. */
+.vote {
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  width: 3.25rem;
+  min-height: 3.25rem;
+  padding: 0.35rem 0;
+  font: inherit;
+  font-weight: 800;
+  font-size: var(--step-1);
+  line-height: 1;
+  color: var(--blue);
+  background: var(--paper);
+  border: 2px solid var(--ghost);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.vote:hover:not(:disabled) {
+  border-color: var(--blue);
+}
+
+.vote[aria-pressed="true"] {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: var(--paper);
+}
+
+/* Can't vote (closed room, or not joined): just the count, no box to tap. */
+.vote:disabled {
+  cursor: default;
+  color: var(--ink);
+  background: transparent;
+  border-color: transparent;
+}
+
+.vote[aria-pressed="true"]:disabled {
+  color: var(--paper);
+  background: var(--ink-soft);
+  border-color: var(--ink-soft);
+}
+
+.vote-arrow {
+  width: 0;
+  height: 0;
+  border-left: 0.4em solid transparent;
+  border-right: 0.4em solid transparent;
+  border-bottom: 0.45em solid currentColor;
+}
+
+.thread {
+  margin-top: 0.5rem;
+}
+
+.thread summary {
+  display: inline-block;
+  padding: 0.35rem 0;
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--blue);
+  cursor: pointer;
+  list-style: none;
+}
+
+.thread summary::-webkit-details-marker {
+  display: none;
+}
+
+.thread summary::after {
+  content: " +";
+}
+
+.thread[open] summary::after {
+  content: " −";
+}
+
+.comments {
+  list-style: none;
+  padding: 0 0 0 0.85rem;
+  margin: 0.25rem 0 0.75rem;
+  border-left: 2px solid var(--ghost);
+}
+
+.comments:empty {
+  display: none;
+}
+
+.comment + .comment {
+  margin-top: 0.6rem;
+}
+
+.comment-body {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.idea .alert {
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 34rem) {
+  .idea {
+    grid-template-columns: 2.75rem 1fr;
+    gap: 0.75rem;
+  }
+
+  .vote {
+    width: 2.75rem;
+    min-height: 2.75rem;
+    font-size: var(--step-0);
+  }
+
+  .idea-body,
+  .compose .textarea {
+    font-size: var(--step-0);
+  }
+
+  .refresh .updated {
+    display: none;
+  }
+}
