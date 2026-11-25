@@ -1,11 +1,16 @@
 // Hash routes, so the site is plain static files (S3 + CloudFront needs no rewrite rules).
+//   #/                student: type the join code
+//   #/room/<room_id>  student: the board (join with a name, post, vote, comment)
 //   #/host            instructor: start a room, your rooms
 //   #/host/<room_id>  instructor: the join code for the projector
 import { hostHome, hostProjector } from "./host.js";
+import { studentBoard, studentHome } from "./student.js";
 
 const app = document.getElementById("app");
 
 const routes = [
+  [/^#\/?$/, () => studentHome()],
+  [/^#\/room\/([^/]+)$/, (m) => studentBoard(decodeURIComponent(m[1]))],
   [/^#\/host\/?$/, () => hostHome()],
   [/^#\/host\/([^/]+)$/, (m) => hostProjector(decodeURIComponent(m[1]))],
 ];
@@ -20,8 +25,7 @@ async function render() {
       return;
     }
   }
-  // The student home page comes with #9; until then everything else goes to the instructor page.
-  location.replace("#/host");
+  location.replace("#/");
 }
 
 window.addEventListener("hashchange", render);
