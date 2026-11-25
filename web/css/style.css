@@ -1,0 +1,458 @@
+/* Brainstorm board: a lecture-hall whiteboard.
+   Marker colours carry meaning: blue = do something, red = close / went wrong,
+   green = open. The highlighter only ever marks the join code. */
+
+:root {
+  --board: #f3f5f4; /* whiteboard surface */
+  --paper: #ffffff;
+  --ink: #1d2b44; /* navy marker: all text */
+  --ink-soft: #5b6678;
+  --ghost: #d9dee3; /* old marker ghosting: rules and borders */
+  --blue: #2457c5;
+  --blue-dark: #1a4296;
+  --red: #c2352b;
+  --red-wash: #fbeceb;
+  --green: #1e7a4c;
+  --highlighter: #ffe45c;
+
+  --font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
+  /* Scale: 1.25 steps from 1rem. */
+  --step--1: 0.875rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.5625rem;
+  --step-3: 1.953rem;
+  --step-4: 2.441rem;
+
+  --gutter: clamp(1rem, 4vw, 2.5rem);
+  --measure: 46rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font);
+  font-size: 100%;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--board);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--board);
+}
+
+main:focus {
+  outline: none;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ---- Page frame ---- */
+
+.page {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--gutter);
+  padding-bottom: 4rem;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 2.5rem;
+}
+
+.wordmark {
+  font-size: var(--step-1);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.page h1 {
+  font-size: var(--step-3);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+.page h2 {
+  font-size: var(--step-1);
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.section + .section {
+  margin-top: 3rem;
+}
+
+.lede {
+  margin-top: 0.5rem;
+  color: var(--ink-soft);
+  max-width: 34rem;
+}
+
+/* ---- Controls ---- */
+
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.field label {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+
+.input {
+  flex: 1 1 18rem;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--step-1);
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ghost);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.85rem;
+}
+
+.input:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgb(36 87 197 / 0.25);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--red);
+}
+
+.hint {
+  flex-basis: 100%;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
+.button {
+  font: inherit;
+  font-weight: 600;
+  border: 2px solid transparent;
+  border-radius: 0.5rem;
+  padding: 0.6rem 1.1rem;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  line-height: 1.3;
+  min-height: 2.75rem;
+}
+
+.button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.button-primary {
+  background: var(--blue);
+  color: var(--paper);
+  font-size: var(--step-1);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--blue-dark);
+}
+
+.button-quiet {
+  background: transparent;
+  color: var(--blue);
+  border-color: var(--ghost);
+}
+
+.button-quiet:hover:not(:disabled) {
+  border-color: var(--blue);
+}
+
+.button-danger {
+  background: transparent;
+  color: var(--red);
+  border-color: var(--ghost);
+}
+
+.button-danger:hover:not(:disabled) {
+  border-color: var(--red);
+}
+
+/* Second step of closing a room: the button turns solid red. */
+.button-danger[data-armed] {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--paper);
+}
+
+.link {
+  color: var(--blue);
+  font-weight: 600;
+  text-underline-offset: 0.2em;
+}
+
+/* ---- Messages ---- */
+
+.alert {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid var(--red);
+  background: var(--red-wash);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.alert:empty {
+  display: none;
+}
+
+.empty {
+  margin-top: 1.25rem;
+  color: var(--ink-soft);
+}
+
+/* ---- My rooms ---- */
+
+.rooms {
+  list-style: none;
+  padding: 0;
+  margin-top: 1rem;
+  border-top: 2px solid var(--ghost);
+}
+
+.room {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+  padding: 1.1rem 0;
+  border-bottom: 2px solid var(--ghost);
+}
+
+.room-topic {
+  font-size: var(--step-1);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.room-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin-top: 0.25rem;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
+.room-code {
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: 0.08em;
+}
+
+.room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.room .alert {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.status::before {
+  content: "";
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-open {
+  color: var(--green);
+}
+
+.status-closed {
+  color: var(--ink-soft);
+}
+
+@media (max-width: 34rem) {
+  .room {
+    grid-template-columns: 1fr;
+  }
+
+  .room-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* ---- Projector view ----
+   Read from the back of a lecture hall: one huge code, everything else small and out of
+   the way. */
+
+.projector {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: var(--gutter);
+  gap: 1rem;
+}
+
+.projector-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.projector-bar .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.projector-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: clamp(1rem, 3vh, 2.5rem);
+}
+
+.projector-topic {
+  font-size: clamp(var(--step-2), 4.2vw, 4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  max-width: 22ch;
+  overflow-wrap: anywhere;
+}
+
+.projector-how {
+  font-size: clamp(var(--step-1), 2.4vw, 2.25rem);
+  color: var(--ink-soft);
+  max-width: 36ch;
+}
+
+.projector-how strong {
+  color: var(--ink);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+/* The join code. Six characters in two groups of three, for reading out loud.
+   Each character sits in an equal-width slot so the groups line up. */
+.code {
+  position: relative;
+  display: inline-flex;
+  gap: 0.35em;
+  margin: 0;
+  font-size: clamp(4rem, 17vw, 17rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  padding: 0.04em 0.18em 0.1em;
+  isolation: isolate;
+}
+
+.code-group {
+  display: inline-flex;
+}
+
+.code-char {
+  display: inline-block;
+  width: 0.78em;
+  text-align: center;
+}
+
+/* Highlighter stroke, slightly crooked like a real one, drawn once when the code appears. */
+.code::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  top: 38%;
+  bottom: 4%;
+  background: var(--highlighter);
+  border-radius: 0.08em 0.14em 0.1em 0.06em;
+  transform: rotate(-1.2deg) scaleX(1);
+  transform-origin: left center;
+  animation: highlight 700ms cubic-bezier(0.3, 0.7, 0.2, 1) 250ms both;
+}
+
+@keyframes highlight {
+  from {
+    transform: rotate(-1.2deg) scaleX(0);
+  }
+}
+
+.projector-closed .code::before {
+  background: var(--ghost);
+}
+
+.projector-foot {
+  display: flex;
+  justify-content: center;
+  font-size: var(--step-1);
+  color: var(--ink-soft);
+}
+
+.projector-foot .status {
+  font-size: var(--step-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code::before {
+    animation: none;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
