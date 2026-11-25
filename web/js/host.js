@@ -147,7 +147,7 @@ export async function hostHome() {
   return page;
 }
 
-// Where students go to join. Students join on the site's home page (#9).
+// Where students go to join: the site's home page asks for the code.
 function joinAddress() {
   const path = location.pathname.replace(/index\.html$/, "").replace(/\/$/, "");
   return location.host + path;
@@ -192,6 +192,7 @@ export async function hostProjector(roomId) {
       h(
         "div",
         { class: "actions" },
+        h("a", { class: "button button-quiet", href: `#/room/${encodeURIComponent(room.room_id)}` }, "Open board"),
         open && mine ? closeButton(room, alert, rerender) : null,
       ),
     ),
