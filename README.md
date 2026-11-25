@@ -177,6 +177,12 @@ projector, a list of your rooms, and a button to close each one. The browser mak
 the first time and keeps it in `localStorage`, so your rooms are still there after a reload.
 Another browser (or a private window) counts as a different person.
 
+To try it as a student, open <http://127.0.0.1:8080/> in a private window and type the code. Pick a
+name, then post ideas, vote and comment. Sort the board by newest or top voted. Changes from other
+people show up when you press Refresh. Once the instructor closes the room, the board stays
+readable but nothing can be added. "Open board" on the projector view shows the same board to the
+instructor.
+
 `web/config.js` says where the APIs are. It points at `serve_local.py`'s ports, so you only need
 to change it if you used `--port` or `--ws-port`.
 
