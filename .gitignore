@@ -10,3 +10,8 @@ __pycache__/
 
 # SAM build output
 .aws-sam/
+
+# Local Playwright install for checking the web client (not part of the site)
+web/node_modules/
+web/package.json
+web/package-lock.json
