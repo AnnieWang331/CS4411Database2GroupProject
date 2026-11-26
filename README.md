@@ -274,6 +274,25 @@ functions yourself, open `docker exec -it brainstorm-postgres psql -U postgres` 
 `SET search_path = brainstorm;` first. [docs/relational.md](docs/relational.md) compares the two
 designs. `docker stop brainstorm-postgres` removes the container.
 
+### Data
+
+There is no external dataset. All the data is made by our scripts:
+
+- **Demo board**: `scripts/seed.py` writes it. The topic, students, ideas, votes and comments are
+  written out in the script, so every run makes the same board (only the room id and join code
+  are new each time). `sql/demo.sql` makes the same board in PostgreSQL.
+- **Benchmark results**: `benchmarks/results/bench-<run id>-*.csv` (plus a `-run.json` with the
+  settings, Python and boto3 versions). The report's numbers come from three runs against AWS
+  in ca-central-1: `20261126T024200Z` (`benchmark.py run`, on-demand), `20261126T024530Z`
+  (`run --provisioned`) and `20261126T024546Z` (`live`). The students' actions are random with
+  a fixed seed (`--seed`, 4411 by default), so a rerun sends the same requests, but its timings
+  will differ. [docs/benchmark.md](docs/benchmark.md) explains how we measured and what we
+  found.
+  Your own runs are saved in the same folder under a new run id.
+- **Charts**: `benchmarks/charts/*.png`, drawn from those three runs by `bench_charts.py` (step 8).
+- **TTL results**: `benchmarks/results/ttl-20261124T213237Z-*`, from `scripts/ttl_demo.py` on
+  AWS (see "Show TTL deleting rooms" below).
+
 ### Settings
 
 Our code reads these environment variables:
