@@ -143,6 +143,20 @@ A browser doesn't show the client which status it got. The socket just fails to 
 that happens, the client should load the board over HTTP (`GET /rooms/{room_id}`) to find out why,
 and show "room closed" or "not found" from that response.
 
+What the web client (`web/js/live.js`) does with the socket:
+
+- It loads the board over HTTP every time a socket opens, including after a reconnect, because
+  nothing sent before the socket opened (or while it was down) reaches it. Messages that arrive
+  during that load wait and are applied after it, so an older copy of the board can't overwrite
+  a newer message.
+- If the socket drops, it reconnects after 1, 2, 4 ... up to 30 seconds, with random jitter so a
+  whole class doesn't reconnect at the same moment. It tries again right away when the page
+  becomes visible or the device comes back online (a phone waking up).
+- API Gateway closes a socket that has been quiet for 10 minutes, and any socket after 2 hours.
+  The client sends `ping` every 5 minutes, which `$default` ignores, and the reconnect covers the
+  2-hour limit.
+- It stops for good when the room closes or expires, and when you leave the page.
+
 `$disconnect` is best effort. API Gateway doesn't promise to send it, for example when a laptop
 loses Wi-Fi. A connection that never got cleaned up is removed when a send to it fails with
 `GoneException`, or by TTL when the room expires. Section 4.8 of [data-model.md](data-model.md)

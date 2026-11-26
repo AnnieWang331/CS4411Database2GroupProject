@@ -1,7 +1,8 @@
 // Student screens (#9): join by code, then the board (post, vote, comment).
-// Changes from other people show up on Refresh; live updates come with #10.
+// Changes from other people arrive over the WebSocket (#10, live.js) and are applied in place.
 import * as api from "./api.js";
 import { alertBox, busy, formatTime, h } from "./dom.js";
+import { connectLive } from "./live.js";
 
 // api.md "Text limits"
 const MAX_NAME = 50;
@@ -149,21 +150,23 @@ export async function studentBoard(roomId) {
     renaming: false,
     expanded: new Set(), // idea ids with their comments open
     drafts: new Map(), // idea id -> unsent comment
-    loadedAt: null,
   };
   const me = api.userId();
+  // Drawn idea rows by idea id, so a live update changes one row and leaves the rest alone
+  // (someone typing a comment keeps their focus).
+  const rows = new Map();
+  // Live vote updates seen per idea id. A vote's own response only adjusts the count if none
+  // arrived meanwhile: the message already carries the total.
+  const voteUpdates = new Map();
 
-  async function load() {
-    const [board, voted] = await Promise.all([api.board(roomId, { withComments: true }), api.myVotes(roomId)]);
+  const fetchBoard = () => Promise.all([api.board(roomId, { withComments: true }), api.myVotes(roomId)]);
+
+  try {
+    const [board, voted] = await fetchBoard();
     state.room = board.room;
     state.ideas = board.ideas;
     state.comments = board.comments;
     state.voted = new Set(voted);
-    state.loadedAt = new Date();
-  }
-
-  try {
-    await load();
   } catch (err) {
     return gonePage(err);
   }
@@ -174,15 +177,19 @@ export async function studentBoard(roomId) {
   // Any write can find the room closed (or expired) since the last load.
   function handleRoomGone(err) {
     if (err.code === "room_closed") {
-      state.room.status = "closed";
-      drawAll();
+      roomClosed();
       return true;
     }
     if (err.code === "room_not_found") {
-      page.replaceWith(gonePage(err));
+      roomGone(err);
       return true;
     }
     return false;
+  }
+
+  function roomGone(err) {
+    live.stop();
+    page.replaceWith(gonePage(err));
   }
 
   // Like dom.busy, but a closed or deleted room redraws the page instead of showing an alert.
@@ -303,14 +310,12 @@ export async function studentBoard(roomId) {
         }
         idea.textarea.removeAttribute("aria-invalid");
         const ok = await attempt(postButton, ideaAlert, async () => {
-          const posted = await api.postIdea(roomId, state.name, body);
-          state.ideas = [posted, ...state.ideas.filter((i) => i.idea_id !== posted.idea_id)];
+          addIdea(await api.postIdea(roomId, state.name, body));
         });
         if (!ok) return;
         idea.textarea.value = "";
         idea.update();
         postStatus.textContent = "Your idea is on the board.";
-        drawList();
       },
     },
     idea.label,
@@ -368,6 +373,7 @@ export async function studentBoard(roomId) {
     return [...state.ideas].sort((a, b) => b.vote_count - a.vote_count);
   }
 
+  // Returns { button, draw }; draw() shows the current count and whether I voted.
   function voteButton(item, alert) {
     const button = h("button", { class: "vote", type: "button" });
     const draw = () => {
@@ -380,6 +386,7 @@ export async function studentBoard(roomId) {
     };
     button.addEventListener("click", async () => {
       const voted = state.voted.has(item.idea_id);
+      const seen = voteUpdates.get(item.idea_id) ?? 0;
       let resync = false;
       await attempt(button, alert, async () => {
         try {
@@ -391,18 +398,19 @@ export async function studentBoard(roomId) {
           resync = true;
           return;
         }
-        item.vote_count += voted ? -1 : 1;
+        if ((voteUpdates.get(item.idea_id) ?? 0) === seen) item.vote_count += voted ? -1 : 1;
         if (voted) state.voted.delete(item.idea_id);
         else state.voted.add(item.idea_id);
       });
       // Update this button only. Re-sorting here would move the idea out from under the
-      // finger that just voted; the order catches up on the next refresh or sort change.
+      // finger that just voted; the order catches up on the next sort change. Live vote
+      // counts don't re-sort either.
       if (resync) await refresh();
       else draw();
       button.focus();
     });
     draw();
-    return button;
+    return { button, draw };
   }
 
   function commentItem(comment) {
@@ -414,6 +422,7 @@ export async function studentBoard(roomId) {
     );
   }
 
+  // Returns { el, threadList, drawSummary }, or null when there's nothing to show or do.
   function commentsBlock(item) {
     const id = item.idea_id;
     const thread = state.comments[id] ?? [];
@@ -451,19 +460,12 @@ export async function studentBoard(roomId) {
               return;
             }
             const ok = await attempt(submit, alert, async () => {
-              const comment = await api.postComment(roomId, item.idea_sk, state.name, body);
-              const existing = state.comments[id] ?? [];
-              if (!existing.some((c) => c.comment_id === comment.comment_id)) {
-                state.comments[id] = [...existing, comment];
-                item.comment_count += 1;
-                threadList.append(commentItem(comment));
-              }
+              addComment(await api.postComment(roomId, item.idea_sk, state.name, body));
             });
             if (!ok) return;
             state.drafts.delete(id);
             box.textarea.value = "";
             box.update();
-            drawSummary();
             box.textarea.focus();
           },
         },
@@ -479,32 +481,153 @@ export async function studentBoard(roomId) {
       if (details.open) state.expanded.add(id);
       else state.expanded.delete(id);
     });
-    return details;
+    return { el: details, threadList, drawSummary };
   }
 
   function ideaRow(item) {
     const alert = alertBox();
     const mine = item.author_id === me;
-    return h(
+    const vote = voteButton(item, alert);
+    const thread = commentsBlock(item);
+    const el = h(
       "li",
       { class: "idea" },
-      voteButton(item, alert),
+      vote.button,
       h(
         "div",
         { class: "idea-main" },
         h("p", { class: "idea-body" }, item.body),
         h("p", { class: "byline" }, mine ? "You" : item.author_name, " · ", formatTime(item.created_at)),
-        commentsBlock(item),
+        thread?.el,
         alert,
       ),
     );
+    rows.set(item.idea_id, { el, vote, thread });
+    return el;
+  }
+
+  function drawCount() {
+    const n = state.ideas.length;
+    ideaCount.textContent = n === 1 ? "1 idea" : `${n} ideas`;
+    empty.hidden = n > 0;
   }
 
   function drawList() {
-    const n = state.ideas.length;
-    ideaCount.textContent = n === 1 ? "1 idea" : `${n} ideas`;
+    rows.clear();
     list.replaceChildren(...sortedIdeas().map(ideaRow));
-    empty.hidden = n > 0;
+    drawCount();
+  }
+
+  // -- Changes, from this browser's own writes, live messages, or a reload --
+  // Each one is applied on its own and skipped if already here: messages can come twice, and
+  // a comment can arrive before its idea (data-model.md section 6).
+
+  const byId = (ideaId) => state.ideas.find((i) => i.idea_id === ideaId);
+
+  function addIdea(item) {
+    if (byId(item.idea_id)) return;
+    // Comments that arrived before the idea are already in state.comments.
+    const early = state.comments[item.idea_id]?.length ?? 0;
+    item = { ...item, comment_count: Math.max(item.comment_count, early) };
+    // Keep newest first even if ideas arrive out of order (idea_sk sorts by time).
+    const at = state.ideas.findIndex((i) => i.idea_sk < item.idea_sk);
+    state.ideas.splice(at === -1 ? state.ideas.length : at, 0, item);
+    // Place the row where the current sort would put it, without moving the others.
+    const order = sortedIdeas();
+    const next = order[order.indexOf(item) + 1];
+    list.insertBefore(ideaRow(item), next ? rows.get(next.idea_id)?.el ?? null : null);
+    drawCount();
+  }
+
+  function setVoteCount(ideaId, count) {
+    voteUpdates.set(ideaId, (voteUpdates.get(ideaId) ?? 0) + 1);
+    const item = byId(ideaId);
+    if (!item || item.vote_count === count) return;
+    item.vote_count = count;
+    rows.get(ideaId)?.vote.draw();
+  }
+
+  function addComment(comment, { count = true } = {}) {
+    const id = comment.idea_id;
+    const thread = state.comments[id] ?? [];
+    if (thread.some((c) => c.comment_id === comment.comment_id)) return;
+    // Oldest first; created_at is fixed-width, so string order is time order.
+    const at = thread.findIndex((c) => c.created_at > comment.created_at);
+    thread.splice(at === -1 ? thread.length : at, 0, comment);
+    state.comments[id] = thread;
+    const item = byId(id);
+    if (!item) return; // its idea_added will pick it up
+    if (count) item.comment_count += 1;
+    redrawComments(item);
+  }
+
+  // Redraw one idea's comments. Rows drawn without a comments block (no comments, can't
+  // write) are rebuilt; otherwise the open form and its draft stay as they are.
+  function redrawComments(item) {
+    const row = rows.get(item.idea_id);
+    if (!row) return;
+    if (!row.thread) {
+      row.el.replaceWith(ideaRow(item));
+      return;
+    }
+    row.thread.threadList.replaceChildren(...(state.comments[item.idea_id] ?? []).map(commentItem));
+    row.thread.drawSummary();
+  }
+
+  // A fresh copy of the board (after a reconnect, or Refresh): merge it into what's shown.
+  function applyBoard(board, voted) {
+    const wasOpen = isOpen();
+    state.room = board.room;
+    state.voted = new Set(voted);
+    for (const thread of Object.values(board.comments ?? {})) {
+      for (const comment of thread) addComment(comment, { count: false });
+    }
+    for (const fresh of board.ideas) {
+      const item = byId(fresh.idea_id);
+      if (!item) {
+        addIdea(fresh);
+        continue;
+      }
+      item.vote_count = fresh.vote_count;
+      if (item.comment_count !== fresh.comment_count) {
+        item.comment_count = fresh.comment_count;
+        redrawComments(item);
+      }
+    }
+    if (wasOpen !== isOpen()) {
+      drawAll();
+      return;
+    }
+    drawHead();
+    for (const row of rows.values()) row.vote.draw();
+  }
+
+  function roomClosed() {
+    live.stop();
+    if (!isOpen()) return;
+    state.room.status = "closed";
+    drawAll();
+  }
+
+  function onMessage(message) {
+    switch (message.type) {
+      case "idea_added":
+        addIdea(message.idea);
+        break;
+      case "vote_count_changed":
+        setVoteCount(message.idea_id, message.vote_count);
+        break;
+      case "comment_added":
+        addComment(message.comment);
+        break;
+      case "room_closed":
+        roomClosed();
+        break;
+      case "room_expired":
+        roomGone({ code: "room_not_found", message: "This room has expired and its ideas were deleted." });
+        break;
+      // participant_joined: the board doesn't list people (the projector counts them).
+    }
   }
 
   const empty = h(
@@ -513,28 +636,48 @@ export async function studentBoard(roomId) {
     "No ideas yet. Be the first.",
   );
 
-  // -- Refresh --
+  // -- Live status and Refresh --
 
   const refreshAlert = alertBox();
-  const updated = h("span", { class: "updated" });
+  const liveStatus = h("span", { class: "live", role: "status" });
   const refreshButton = h("button", { class: "button button-quiet", type: "button" }, "Refresh");
+
+  // Load the board again and merge it in. Live messages that arrive meanwhile wait, then go on
+  // top, so a message newer than the copy isn't overwritten by it.
+  let queued = null;
+  async function reload() {
+    queued = [];
+    try {
+      const [board, voted] = await fetchBoard();
+      applyBoard(board, voted);
+    } finally {
+      const waiting = queued;
+      queued = null;
+      waiting.forEach(onMessage);
+    }
+  }
   async function refresh() {
-    const ok = await attempt(refreshButton, refreshAlert, load);
-    if (ok) drawAll();
+    await attempt(refreshButton, refreshAlert, reload);
   }
   refreshButton.addEventListener("click", refresh);
+
+  const LIVE_TEXT = { connecting: "Connecting…", live: "Live", offline: "Reconnecting…" };
+  function drawLive(liveState) {
+    liveStatus.dataset.state = liveState;
+    liveStatus.textContent = isOpen() ? LIVE_TEXT[liveState] : "";
+  }
 
   function drawAll() {
     drawHead();
     drawWrite();
     drawList();
-    updated.textContent = `Updated ${formatTime(state.loadedAt)}`;
+    if (!isOpen()) liveStatus.textContent = "";
   }
 
   const page = h(
     "div",
     { class: "page page-board" },
-    masthead(h("div", { class: "refresh" }, updated, refreshButton)),
+    masthead(h("div", { class: "refresh" }, liveStatus, refreshButton)),
     refreshAlert,
     head,
     writeSlot,
@@ -552,5 +695,22 @@ export async function studentBoard(roomId) {
     ),
   );
   drawAll();
+
+  // A closed room refuses sockets and gets no more changes, so only open rooms connect.
+  const live = isOpen()
+    ? connectLive(roomId, {
+        onMessage: (message) => (queued ? queued.push(message) : onMessage(message)),
+        onSync: async () => {
+          try {
+            await reload();
+          } catch (err) {
+            if (!handleRoomGone(err)) throw err;
+          }
+          return isOpen() && page.isConnected;
+        },
+        onState: drawLive,
+      })
+    : { stop() {} };
+  page.teardown = () => live.stop();
   return page;
 }

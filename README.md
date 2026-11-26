@@ -178,10 +178,12 @@ the first time and keeps it in `localStorage`, so your rooms are still there aft
 Another browser (or a private window) counts as a different person.
 
 To try it as a student, open <http://127.0.0.1:8080/> in a private window and type the code. Pick a
-name, then post ideas, vote and comment. Sort the board by newest or top voted. Changes from other
-people show up when you press Refresh. Once the instructor closes the room, the board stays
-readable but nothing can be added. "Open board" on the projector view shows the same board to the
-instructor.
+name, then post ideas, vote and comment. Sort the board by newest or top voted. Open the same
+room in two windows: an idea, vote or comment in one shows up in the other without refreshing,
+and the projector view counts people as they join. The board says "Live" while it's connected.
+If `serve_local.py` stops, it says "Reconnecting…" and loads the board again once it's back.
+Once the instructor closes the room, the board stays readable but nothing can be added. "Open
+board" on the projector view shows the same board to the instructor.
 
 `web/config.js` says where the APIs are. It points at `serve_local.py`'s ports, so you only need
 to change it if you used `--port` or `--ws-port`.

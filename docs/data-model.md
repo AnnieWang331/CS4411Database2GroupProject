@@ -258,6 +258,14 @@ delete its code item immediately (4.7).
 Joining twice is fine: it just updates the display name and keeps the original `joined_at`. If
 step 1 fails, the room is closed or expired.
 
+Changing your name only changes the participant item. Ideas and comments keep the `author_name`
+they were posted with, so older posts still show the old name, on Refresh and live (a second
+join sends no live message, section 6). That's a trade-off we chose: copying the name onto each
+post means a board load is still one `Query` with no lookup of who wrote what. Showing current
+names would need the participants loaded with every board (they sort after `META`, so that's a
+second `Query`) and a rename message. Updating the old posts on a rename would be one write per
+post, with no limit on how many.
+
 ### 4.3 Post an idea
 
 We first read the room to get its `expires_at` (pattern 3). Then:
@@ -469,6 +477,9 @@ A write that doesn't actually change anything doesn't create a stream record [12
   separate code item with a conditional write and delete it when the room closes.
 - **Deleting old rooms.** SQL would need a scheduled job running `DELETE ... WHERE expires_at <
   now()`. TTL does it for free, but not right on time.
+- **Changing a name.** SQL would store the author's user id on each idea and join to the users
+  table, so a new name shows everywhere at once. We copy the name onto each idea and comment so
+  the board stays one `Query`, which means a rename only shows on new posts (4.2).
 - **Questions we didn't plan for.** Something like "all ideas by one student across every room"
   is an easy query in SQL. Here we'd need a new GSI, or a Scan, which we want to avoid. This is
   the main trade-off: DynamoDB is fast and cheap for the questions you designed for, and harder
