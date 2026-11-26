@@ -3,6 +3,8 @@
 import csv
 import importlib.util
 import json
+import threading
+from http.server import HTTPServer
 from pathlib import Path
 
 import pytest
@@ -132,3 +134,37 @@ def test_run_writes_results_and_finds_no_lost_updates(dynamodb, results):
         "comment",
         "reload",
     ]
+
+
+def load_script(name: str):
+    path = SCRIPT.parent / f"{name}.py"
+    module_spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module
+
+
+def test_live_times_posts_and_votes_reaching_a_socket(table, dynamodb, results):
+    serve_local, live_local = load_script("serve_local"), load_script("live_local")
+    endpoint = dynamodb.meta.client.meta.endpoint_url
+    server = HTTPServer(("127.0.0.1", 0), serve_local.make_handler(table))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    stack = live_local.LiveStack(table.name, endpoint, port=0).start()
+    try:
+        run_id = benchmark.live(
+            f"http://127.0.0.1:{server.server_address[1]}",
+            f"ws://127.0.0.1:{stack.port}",
+            samples=2,
+            interval=0,
+            run_id="live-test",
+        )
+    finally:
+        stack.stop()
+        server.shutdown()
+        server.server_close()
+
+    out = benchmark.result_paths(run_id)
+    live_rows = rows(out["live"])
+    assert [(r["op"], r["ok"]) for r in live_rows] == [("post_idea", "True"), ("vote", "True")] * 2
+    assert all(float(r["event_ms"]) >= float(r["http_ms"]) for r in live_rows)
+    assert json.loads(out["run"].read_text())["target"] == "local"

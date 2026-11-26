@@ -3,6 +3,7 @@
 Usage (global options such as --results go before the command):
   python scripts/benchmark.py run [--scenarios LIST] [--students 30,100,300] [--provisioned]
          [--endpoint-url URL] [--keep-table]
+  python scripts/benchmark.py live [--api-url URL] [--ws-url URL] [--samples 50]
 
 ``run`` creates its own table (``bench-<RUN_ID>``, on-demand unless ``--provisioned``), so it
 never touches the demo table, and deletes it afterwards unless ``--keep-table``. Every student is
@@ -24,6 +25,11 @@ Scenarios (``--scenarios``, comma-separated, default all):
 After each scenario the vote and comment counters are checked against the items (no lost
 updates). Results go to ``benchmarks/results/bench-<RUN_ID>-*.csv`` plus ``-run.json``.
 
+``live`` measures what users feel most on a live board: the time from an HTTP write (post an
+idea, vote) returning to the matching event reaching a subscribed WebSocket, through the deployed
+stack (Streams -> Lambda -> API Gateway) or the local one (``serve_local.py``, which polls the
+stream every 0.2 s). Results go to ``bench-<RUN_ID>-live.csv`` and ``-live-summary.csv``.
+
 DynamoDB Local doesn't model partitions, throttling or real latency: its numbers only show how
 the code behaves, and hot-partition and capacity results must come from AWS.
 """
@@ -39,14 +45,19 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlencode, urlsplit
+from urllib.request import Request, urlopen
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import BotoCoreError, ClientError
+from websockets.exceptions import ConnectionClosed
+from websockets.sync.client import connect as ws_connect
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -668,6 +679,8 @@ def result_paths(run_id: str) -> dict[str, Path]:
             ("phases", "csv"),
             ("summary", "csv"),
             ("checks", "csv"),
+            ("live", "csv"),
+            ("live-summary", "csv"),
         ]
     }
 
@@ -754,6 +767,194 @@ def run(
     return run_id
 
 
+LIVE_FIELDS = ["sample", "op", "idea_id", "http_ms", "event_after_response_ms", "event_ms", "ok"]
+LIVE_SUMMARY_FIELDS = ["op", "count", "ok", "measure", "p50_ms", "p95_ms", "p99_ms", "max_ms"]
+LIVE_TIMEOUT_S = 10.0
+
+
+class LiveSocket:
+    """A board subscriber that notes when each live event arrives (``perf_counter`` time)."""
+
+    def __init__(self, ws_url: str, room_id: str) -> None:
+        sep = "&" if "?" in ws_url else "?"
+        self._stack = ExitStack()
+        self.conn = self._stack.enter_context(
+            ws_connect(f"{ws_url}{sep}{urlencode({'room_id': room_id})}")
+        )
+        self.arrived: dict[tuple[Any, ...], float] = {}
+        self.cond = threading.Condition()
+        self.thread = threading.Thread(target=self._receive, daemon=True)
+        self.thread.start()
+
+    def _receive(self) -> None:
+        try:
+            for raw in self.conn:
+                now = time.perf_counter()
+                message = json.loads(raw)
+                if message.get("type") == "idea_added":
+                    key: tuple[Any, ...] = ("post_idea", message["idea"]["idea_id"])
+                elif message.get("type") == "vote_count_changed":
+                    key = ("vote", message["idea_id"], int(message["vote_count"]))
+                else:
+                    continue
+                with self.cond:
+                    self.arrived.setdefault(key, now)
+                    self.cond.notify_all()
+        except ConnectionClosed:
+            pass
+
+    def wait(self, key: tuple[Any, ...], timeout: float = LIVE_TIMEOUT_S) -> float | None:
+        with self.cond:
+            self.cond.wait_for(lambda: key in self.arrived, timeout)
+            return self.arrived.get(key)
+
+    def close(self) -> None:
+        self._stack.close()
+        self.thread.join(timeout=5)
+
+
+def api_call(api_url: str, method: str, path: str, user: str, body: Any = None) -> Any:
+    """Call the HTTP API and return the decoded JSON body (None for 204)."""
+    data = None if body is None else json.dumps(body).encode()
+    request = Request(
+        api_url.rstrip("/") + path,
+        data=data,
+        method=method,
+        headers={"X-User-Id": user, "Content-Type": "application/json"},
+    )
+    with urlopen(request, timeout=LIVE_TIMEOUT_S) as resp:
+        payload = resp.read()
+    return json.loads(payload) if payload else None
+
+
+def live(
+    api_url: str,
+    ws_url: str,
+    samples: int = 50,
+    interval: float = 0.25,
+    run_id: str | None = None,
+) -> str:
+    """Time HTTP write -> live event on a subscribed socket, for posts and votes."""
+    run_id = run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    local = urlsplit(api_url).hostname in {"localhost", "127.0.0.1", "::1"}
+    owner = f"prof-live-{run_id}"
+    room = api_call(api_url, "POST", "/rooms", owner, {"topic": "Live-update benchmark"})
+    socket = LiveSocket(ws_url, room["room_id"])
+    time.sleep(1)  # let $connect finish storing the connection on AWS
+    started = datetime.now(UTC).isoformat(timespec="seconds")
+    rows: list[dict[str, Any]] = []
+    try:
+        for i in range(samples):
+            user = f"stu-live-{i}"
+            t0 = time.perf_counter()
+            idea = api_call(
+                api_url,
+                "POST",
+                f"/rooms/{room['room_id']}/ideas",
+                user,
+                {"display_name": f"Student {i}", "body": f"Live idea {i}"},
+            )
+            t1 = time.perf_counter()
+            rows.append(
+                live_row(
+                    i,
+                    "post_idea",
+                    idea["idea_id"],
+                    t0,
+                    t1,
+                    socket.wait(("post_idea", idea["idea_id"])),
+                )
+            )
+
+            t0 = time.perf_counter()
+            api_call(
+                api_url,
+                "PUT",
+                f"/rooms/{room['room_id']}/ideas/{quote(idea['idea_sk'], safe='')}/vote",
+                user,
+            )
+            t1 = time.perf_counter()
+            rows.append(
+                live_row(
+                    i, "vote", idea["idea_id"], t0, t1, socket.wait(("vote", idea["idea_id"], 1))
+                )
+            )
+            time.sleep(interval)
+    finally:
+        socket.close()
+        api_call(api_url, "POST", f"/rooms/{room['room_id']}/close", owner)
+
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = result_paths(run_id)
+    meta = {
+        "run_id": run_id,
+        "command": "live",
+        "target": "local" if local else "aws",
+        "api_url": api_url,
+        "ws_url": ws_url,
+        "samples": samples,
+        "interval_s": interval,
+        "started_at": started,
+        "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "python": platform.python_version(),
+    }
+    out["run"].write_text(json.dumps(meta, indent=2) + "\n")
+    write_csv(out["live"], LIVE_FIELDS, rows)
+    write_csv(out["live-summary"], LIVE_SUMMARY_FIELDS, summarize_live(rows))
+    return run_id
+
+
+def live_row(
+    sample: int, op: str, idea_id: str, t0: float, t1: float, arrived: float | None
+) -> dict[str, Any]:
+    return {
+        "sample": sample,
+        "op": op,
+        "idea_id": idea_id,
+        "http_ms": round((t1 - t0) * 1000, 1),
+        "event_after_response_ms": "" if arrived is None else round((arrived - t1) * 1000, 1),
+        "event_ms": "" if arrived is None else round((arrived - t0) * 1000, 1),
+        "ok": arrived is not None,
+    }
+
+
+def summarize_live(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per op: HTTP latency, event after the response, and event after the request was sent."""
+    summary = []
+    for op in ["post_idea", "vote"]:
+        mine = [r for r in rows if r["op"] == op]
+        ok = [r for r in mine if r["ok"]]
+        for measure in ["http_ms", "event_after_response_ms", "event_ms"]:
+            values = [float(r[measure]) for r in ok] or [0.0]
+            summary.append(
+                {
+                    "op": op,
+                    "count": len(mine),
+                    "ok": len(ok),
+                    "measure": measure,
+                    "p50_ms": round(statistics.median(values), 1),
+                    "p95_ms": percentile(values, 95),
+                    "p99_ms": percentile(values, 99),
+                    "max_ms": max(values),
+                }
+            )
+    return summary
+
+
+def print_live_summary(run_id: str) -> None:
+    out = result_paths(run_id)
+    with out["live-summary"].open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    print(f"\n{'op':<10}{'measure':<25}{'ok':>8}{'p50':>8}{'p95':>8}{'p99':>8}{'max':>8}")
+    for r in rows:
+        print(
+            f"{r['op']:<10}{r['measure']:<25}{r['ok'] + '/' + r['count']:>8}"
+            f"{float(r['p50_ms']):>8.1f}{float(r['p95_ms']):>8.1f}{float(r['p99_ms']):>8.1f}"
+            f"{float(r['max_ms']):>8.1f}"
+        )
+    print(f"\nResults: {out['live'].parent}/bench-{run_id}-live*")
+
+
 def print_summary(run_id: str) -> None:
     out = result_paths(run_id)
     with out["summary"].open(newline="") as f:
@@ -811,6 +1012,12 @@ def main() -> int:
     run_cmd.add_argument("--keep-table", action="store_true")
     run_cmd.add_argument("--seed", type=int, default=4411)
 
+    live_cmd = commands.add_parser("live", help="time HTTP write -> WebSocket event")
+    live_cmd.add_argument("--api-url", default="http://127.0.0.1:3000")
+    live_cmd.add_argument("--ws-url", default="ws://127.0.0.1:3001")
+    live_cmd.add_argument("--samples", type=int, default=50)
+    live_cmd.add_argument("--interval", type=float, default=0.25, help="seconds between samples")
+
     args = parser.parse_args()
     RESULTS = args.results
     try:
@@ -828,7 +1035,10 @@ def main() -> int:
                 keep_table=args.keep_table,
             )
             print_summary(run_id)
-    except (BotoCoreError, ClientError) as err:
+        elif args.command == "live":
+            run_id = live(args.api_url, args.ws_url, args.samples, args.interval)
+            print_live_summary(run_id)
+    except (BotoCoreError, ClientError, OSError) as err:
         print(f"Benchmark failed: {err}", file=sys.stderr)
         return 1
     return 0
