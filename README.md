@@ -61,8 +61,12 @@ from AWS that runs on your machine. You don't need an AWS account for any of the
 
 ### 1. Install the Python packages
 
+Clone the repository, or unzip the submitted archive, and run every command below from its top
+folder (the one with this README). Nothing needs git.
+
 Make a virtual environment and turn it on. For example, run `python -m venv .venv` and then
-`source .venv/bin/activate` (a pyenv virtualenv works too). Then install the packages:
+`source .venv/bin/activate` (on Windows, `.venv\Scripts\activate`; a pyenv virtualenv works
+too). Then install the packages:
 
 ```sh
 pip install -r requirements-dev.txt
@@ -81,6 +85,9 @@ docker run -d --rm --name dynamodb-local -p 8000:8000 amazon/dynamodb-local \
 If you use Podman, change `docker` to `podman` and use `docker.io/amazon/dynamodb-local` as the
 image name. Because of `-inMemory`, all the data disappears when the container stops, which is
 handy for testing. To stop it, run `docker stop dynamodb-local`.
+
+If something else already uses port 8000, use `-p 8001:8000` instead and `http://localhost:8001`
+wherever this README says `http://localhost:8000`.
 
 ### 3. Create the table and add demo data
 
@@ -107,11 +114,14 @@ so you can see it worked.
 ### 4. Run the tests
 
 ```sh
-pytest
+REQUIRE_DYNAMODB_LOCAL=1 pytest
 ```
 
-The tests make their own tables in DynamoDB Local and delete them afterwards. If DynamoDB Local
-isn't running, the tests that need it are skipped instead of failing.
+The tests make their own tables in DynamoDB Local and delete them afterwards. They use
+`DYNAMODB_ENDPOINT_URL` from step 3 (`http://localhost:8000` if it isn't set). With
+`REQUIRE_DYNAMODB_LOCAL=1`, a test that can't reach DynamoDB Local fails. Without it, those
+tests are skipped, so a run with only skips doesn't mean the tests passed. Every test should
+pass, with none skipped.
 
 Lint: run `ruff format --check .`, `ruff check .` and `cfn-lint template.yaml` before you push.
 The ruff settings (like our 100-character line length) are in `pyproject.toml`.
