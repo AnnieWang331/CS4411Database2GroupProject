@@ -57,7 +57,7 @@ from AWS that runs on your machine. You don't need an AWS account for any of the
 ### What you need
 
 - Python 3.12 or newer
-- Docker or Podman (we use it to run DynamoDB Local)
+- Docker or Podman (we use it to run DynamoDB Local, and PostgreSQL for the comparison)
 
 ### 1. Install the Python packages
 
@@ -230,6 +230,31 @@ only show that the code works under load. The numbers in our report come from AW
 Local also gets slower after several runs (each one creates and deletes a table); restart it
 (`podman restart dynamodb-local`, then `create_table.py` and `seed.py` again) before a run.
 
+### 9. Run the relational baseline
+
+`sql/` has the same board as a PostgreSQL schema, for comparing the two designs. It doesn't need
+Python or DynamoDB Local, only a container. Start PostgreSQL 18 with the `sql/` folder mounted
+(`:Z` is for SELinux, as on Fedora; Docker on macOS or Windows doesn't need it):
+
+```sh
+docker run -d --rm --name brainstorm-postgres -e POSTGRES_PASSWORD=postgres \
+  -v "$PWD/sql:/sql:ro,Z" postgres:18
+docker exec brainstorm-postgres pg_isready -h 127.0.0.1 -U postgres   # until "accepting connections"
+```
+
+Then load the schema and the access patterns, run the checks, and add the demo room:
+
+```sh
+docker exec brainstorm-postgres psql -X -q -U postgres -v ON_ERROR_STOP=1 \
+  -f /sql/schema.sql -f /sql/queries.sql -f /sql/checks.sql -f /sql/demo.sql
+```
+
+It prints `ok: ...` for each rule the database rejected, `all checks passed`, and the demo board
+(the same one `seed.py` makes). Running it again starts from an empty schema. To try the
+functions yourself, open `docker exec -it brainstorm-postgres psql -U postgres` and run
+`SET search_path = brainstorm;` first. [docs/relational.md](docs/relational.md) compares the two
+designs. `docker stop brainstorm-postgres` removes the container.
+
 ### Settings
 
 Our code reads these environment variables:
@@ -251,6 +276,8 @@ To check that your AWS profile can reach DynamoDB, run `python scripts/check_aws
 ```text
 docs/data-model.md     How we store the data in DynamoDB, and why
 docs/api.md            The HTTP and WebSocket APIs: routes, errors, live-update messages
+docs/benchmark.md      What the classroom load benchmark measured, and what it means
+docs/relational.md     The same board in PostgreSQL, compared pattern by pattern
 docs/project-info/     Course requirements: project outline, grading rubric and our proposal
 template.yaml          The AWS deployment (SAM): table, HTTP and WebSocket APIs, live-update
                        function, web hosting
@@ -280,6 +307,8 @@ scripts/               Scripts to create the table, add demo data, run the API a
                        updates locally (live_local.py), check AWS access, show TTL
                        deleting rooms (ttl_demo.py), upload the web client (deploy_web.py),
                        run the benchmark (benchmark.py) and draw its charts (bench_charts.py)
+sql/                   The same board in PostgreSQL, for the relational comparison
+                       (schema, one function per access pattern, checks, demo data)
 benchmarks/results/    Measurements we ran, as CSV: TTL delete delays and benchmark runs
 benchmarks/charts/     The benchmark charts for the report
 tests/                 Our tests (most run against DynamoDB Local; tests/infra checks

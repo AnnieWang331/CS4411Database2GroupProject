@@ -64,3 +64,24 @@ jobs:
         run: |
           python scripts/create_table.py
           python scripts/seed.py
+
+  sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start PostgreSQL
+        run: |
+          docker run -d --name brainstorm-postgres -e POSTGRES_PASSWORD=postgres \
+            -v "$PWD/sql:/sql:ro" postgres:18
+          # Over TCP: during first start the image runs a temporary socket-only server.
+          for _ in $(seq 30); do
+            docker exec brainstorm-postgres pg_isready -q -h 127.0.0.1 -U postgres && exit 0
+            sleep 1
+          done
+          docker logs brainstorm-postgres
+          exit 1
+      - name: Relational baseline (schema, checks, demo)
+        run: |
+          docker exec brainstorm-postgres psql -X -q -U postgres -v ON_ERROR_STOP=1 \
+            -f /sql/schema.sql -f /sql/queries.sql -f /sql/checks.sql -f /sql/demo.sql
