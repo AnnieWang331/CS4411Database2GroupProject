@@ -193,7 +193,7 @@ export async function hostHome() {
         h("h1", { id: "start-heading" }, "Start a Brainstorm Board"),
         h("a", { class: "link", href: "#/", onclick: slideOnClick("#/", "open") }, "Student? Join a room"),
       ),
-      h("p", { class: "lede" }, "Rooms will stay open for 24 hours, can be manually closed in advance."),
+      h("p", { class: "lede" }, "Rooms stay open for 24 hours, or until closed."),
       form,
     ),
     h(
@@ -318,13 +318,15 @@ export async function hostProjector(roomId) {
   );
   const spacer = h("div", { class: "proj-spacer" });
   const page = h("div", { class: `projector${open ? "" : " projector-closed"}` }, head, spacer, board);
-  scrollMorph({ page, head, hero, spacer, board, small, big, hint, refreshGroup });
+  const stopMorph = scrollMorph({ page, head, hero, spacer, board, small, big, hint, refreshGroup });
 
-  // Leaving the page stops both sockets: this one (who joined) and the board's (ideas).
+  // Leaving the page (or app.js dropping it unshown, after a faster route change) stops both
+  // sockets, this one (who joined) and the board's (ideas), and the scroll listeners.
   let live = null;
   page.teardown = () => {
     live?.stop();
     board.teardown?.();
+    stopMorph();
   };
   if (open) {
     live = connectLive(roomId, {
@@ -432,6 +434,7 @@ function scrollMorph({ page, head, hero, spacer, board, small, big, hint, refres
   const between = () => window.scrollY > 1 && window.scrollY < range - 1;
 
   const onWheel = (event) => {
+    if (!page.isConnected) return stop(); // never steer another page's scrolling
     if (!moves || event.ctrlKey) return; // ctrl+wheel is zoom
     const y = window.scrollY;
     if (gliding && y < range + 1) {
@@ -450,6 +453,7 @@ function scrollMorph({ page, head, hero, spacer, board, small, big, hint, refres
   // Touch, keys and the scrollbar: when a scroll stops part-way, finish it in the direction
   // it was going.
   const settle = () => {
+    if (!page.isConnected) return stop();
     clearTimeout(glideTimer);
     if (gliding) {
       gliding = false;
@@ -461,13 +465,7 @@ function scrollMorph({ page, head, hero, spacer, board, small, big, hint, refres
 
   let frame = 0;
   const onScroll = () => {
-    if (!page.isConnected) {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("scrollend", settle);
-      observer.disconnect();
-      return;
-    }
+    if (!page.isConnected) return stop();
     const y = window.scrollY;
     if (y !== lastY) direction = Math.sign(y - lastY);
     lastY = y;
@@ -482,8 +480,25 @@ function scrollMorph({ page, head, hero, spacer, board, small, big, hint, refres
   const observer = new ResizeObserver(() => measure());
   observer.observe(head);
   observer.observe(hero);
-  window.addEventListener("scroll", onScroll, { passive: true });
-  window.addEventListener("wheel", onWheel, { passive: false });
-  window.addEventListener("scrollend", settle);
-  document.fonts?.ready.then(measure);
+
+  // Everything above switches off together as soon as this page is left: any route change
+  // (app.js swaps the page on hashchange, including the redraw after closing the room).
+  // Aborting the controller removes every listener added with its signal.
+  const listening = new AbortController();
+  const { signal } = listening;
+  function stop() {
+    listening.abort();
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    clearTimeout(glideTimer);
+    clearTimeout(settleTimer);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true, signal });
+  window.addEventListener("wheel", onWheel, { passive: false, signal });
+  window.addEventListener("scrollend", settle, { signal });
+  window.addEventListener("hashchange", stop, { signal });
+  document.fonts?.ready.then(() => {
+    if (!signal.aborted) measure();
+  });
+  return stop;
 }

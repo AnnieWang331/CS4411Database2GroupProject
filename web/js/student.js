@@ -23,31 +23,19 @@ function readJson(key, fallback) {
   }
 }
 
-// TEMPORARY: remembering names is switched off, so every visit asks for a name. To turn it
-// back on, uncomment the three blocks marked "name memory" and delete this clean-up, which
-// clears names saved before it was switched off.
-try {
-  localStorage.removeItem(NAMES_KEY);
-  localStorage.removeItem(LAST_NAME_KEY);
-} catch {
-  // Storage blocked: nothing was saved.
-}
-
 function savedName(roomId) {
-  // name memory: return readJson(NAMES_KEY, {})[roomId] ?? null;
-  return null;
+  return readJson(NAMES_KEY, {})[roomId] ?? null;
 }
 
 function saveName(roomId, name) {
-  // name memory:
-  // try {
-  //   const names = readJson(NAMES_KEY, {});
-  //   names[roomId] = name;
-  //   localStorage.setItem(NAMES_KEY, JSON.stringify(names));
-  //   localStorage.setItem(LAST_NAME_KEY, JSON.stringify(name));
-  // } catch {
-  //   // Storage blocked: the name lasts until the page reloads.
-  // }
+  try {
+    const names = readJson(NAMES_KEY, {});
+    names[roomId] = name;
+    localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+    localStorage.setItem(LAST_NAME_KEY, JSON.stringify(name));
+  } catch {
+    // Storage blocked: the name lasts until the page reloads.
+  }
 }
 
 function masthead(...extra) {
@@ -421,7 +409,7 @@ export async function studentBoard(roomId, { embedded = false, onLoad } = {}) {
     if (!isOpen()) {
       bar.replaceChildren(h("p", { class: "banner" }, "This room is closed. You can still read everything, but nothing new can be added."));
     } else if (!state.name || state.renaming) {
-      // name memory: if (!nameInput.value) nameInput.value = readJson(LAST_NAME_KEY, "");
+      if (!nameInput.value) nameInput.value = readJson(LAST_NAME_KEY, "");
       nameRow.replaceChildren(
         h("p", { class: "bar-label" }, state.renaming ? "Change your name" : "Pick a name to post, vote and comment"),
         ...(state.renaming ? [cancelRename] : []),
@@ -603,6 +591,11 @@ export async function studentBoard(roomId, { embedded = false, onLoad } = {}) {
     const n = state.ideas.length;
     ideaCount.textContent = n === 1 ? "1 idea" : `${n} ideas`;
     empty.hidden = n > 0;
+    // Only invite a first idea when this person can actually post one: not in a closed room,
+    // and not on the instructor's read-only copy.
+    if (!isOpen()) empty.textContent = "No ideas here.";
+    else if (embedded) empty.textContent = "No ideas yet.";
+    else empty.textContent = "No ideas yet. Be the first.";
   }
 
   function drawList() {
@@ -723,11 +716,7 @@ export async function studentBoard(roomId, { embedded = false, onLoad } = {}) {
     }
   }
 
-  const empty = h(
-    "p",
-    { class: "empty" },
-    "No ideas yet. Be the first.",
-  );
+  const empty = h("p", { class: "empty" });
 
   // -- Live status and Refresh --
 
