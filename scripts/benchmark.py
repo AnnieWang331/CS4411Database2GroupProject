@@ -998,8 +998,6 @@ def live(
         "run_id": run_id,
         "command": "live",
         "target": "local" if local else "aws",
-        "api_url": api_url,
-        "ws_url": ws_url,
         "samples": samples,
         "interval_s": interval,
         "started_at": started,
@@ -1157,13 +1155,13 @@ def print_summary(run_id: str) -> None:
         rows = list(csv.DictReader(f))
     print(
         f"\n{'scenario':<14}{'n':>5} {'op':<13}{'ok':>6}{'err':>5}{'p50':>8}{'p95':>8}"
-        f"{'p99':>8}{'ok/s':>8}{'confl':>7}{'thr':>5}{'cap/op':>8}"
+        f"{'p99':>8}{'ok/s':>8}{'confl':>7}{'thr':>7}{'cap/op':>8}"
     )
     for r in rows:
         print(
             f"{r['scenario']:<14}{r['students']:>5} {r['op']:<13}{r['ok']:>6}{r['errors']:>5}"
             f"{float(r['p50_ms']):>8.1f}{float(r['p95_ms']):>8.1f}{float(r['p99_ms']):>8.1f}"
-            f"{float(r['ok_per_s']):>8.1f}{r['tx_conflicts']:>7}{r['throttles']:>5}"
+            f"{float(r['ok_per_s']):>8.1f}{r['tx_conflicts']:>7} {r['throttles']:>6}"
             f"{float(r['capacity_per_op']):>8.2f}"
         )
     with out["checks"].open(newline="") as f:
