@@ -228,8 +228,17 @@ ideas and votes over HTTP and times when the message reaches a WebSocket:
 python scripts/benchmark.py live
 ```
 
-`python scripts/bench_charts.py --run <run id> [--live-run <run id>]` draws the charts for the
-report into `benchmarks/charts/`.
+`scripts/bench_charts.py` draws the report's charts from saved CSVs. It needs no database, so
+this redraws the charts in `benchmarks/charts/` from our AWS runs, without an AWS account:
+
+```sh
+python scripts/bench_charts.py --run 20261126T024200Z --provisioned-run 20261126T024530Z \
+  --live-run 20261126T024546Z
+```
+
+For your own run, add `--out` so the report's charts aren't overwritten:
+`python scripts/bench_charts.py --run <run id> [--live-run <run id>] --out my-charts`. A run
+without the `query-vs-scan` scenario skips that chart.
 
 The students are split over one process per CPU (threads inside each), because one Python
 process can't send more than about 100-150 requests a second. `--processes N` changes that; the
@@ -238,7 +247,7 @@ process can't send more than about 100-150 requests a second. `--processes N` ch
 DynamoDB Local is one Java process with no partitions, throttling or network, so its numbers
 only show that the code works under load. The numbers in our report come from AWS (see below).
 Local also gets slower after several runs (each one creates and deletes a table); restart it
-(`podman restart dynamodb-local`, then `create_table.py` and `seed.py` again) before a run.
+(`docker restart dynamodb-local`, then `create_table.py` and `seed.py` again) before a run.
 
 ### 9. Run the relational baseline
 
