@@ -156,9 +156,11 @@ scenario, and they still conflict.
 
 The trade-off is open question 3: without the check, the API would accept votes after the room
 closes, and they'd show up on the closed board. The web client already hides voting in a closed
-room, so only someone calling the API directly could do that. For a classroom that's a small
-cost, so [TODO: group decision: drop the room check from votes (app change + data-model 4.4), or keep it
-and only report it?].
+room, so only someone calling the API directly could do that. We kept the check: a closed board
+should stay exactly as the class left it, and the conflicts only get this bad when a whole class
+votes in the same second, which a real class spreads over minutes. If a deployment did hit them,
+taking the room check out of the vote transaction (data-model 4.4) is a small change, and this
+scenario shows what it would buy.
 
 `hot-idea` is the worst case: everyone updates the same counter. The counter item is the hot
 spot here, and no change to the room check would help. 14 of 300 votes failed after five

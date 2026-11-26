@@ -502,7 +502,8 @@ What we're doing for now is in brackets.
    (Client-made ids for now.)
 3. **Votes in closed rooms.** Should voting stop when a room closes? Skipping the room check on
    votes would mean fewer conflicts: in our benchmark, 16 instead of 1,688 at 300 students
-   ([benchmark.md](benchmark.md) section 3). (Voting stops for now; group to decide.)
+   ([benchmark.md](benchmark.md) section 3). (Decided 2026-11-26: keep the check, so a closed
+   board can't change; the benchmark result is reported as the trade-off.)
 4. **How long rooms last.** What should the default be, and can instructors extend it? Extending
    means updating every item in the room. (24 hours, can't be extended.)
 5. **Editing and deleting.** Can people edit or delete their ideas and comments? That would need
