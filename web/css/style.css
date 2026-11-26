@@ -724,8 +724,20 @@ ol {
   overflow-wrap: anywhere;
 }
 
-.code.code-small {
-  font-size: var(--step-3);
+/* The code inside "Go to … and type ABC 123 to join": the same look, at the sentence's size. */
+.code.code-inline {
+  font-size: 1em;
+  margin-inline: 0.1em;
+  color: var(--ink); /* dark like the big one, not the sentence's grey */
+}
+
+/* Live and Refresh in the banner, the same size as the rest of it. */
+.proj-line .refresh {
+  font-size: var(--step-1);
+}
+
+.proj-line .refresh .button {
+  margin-block: 0;
 }
 
 .proj-status,
@@ -759,7 +771,6 @@ ol {
 
 /* The pieces that morph: scaled about their middles. */
 .proj-topic,
-.code-small,
 .proj-how,
 .proj-status,
 .projector-topic,
@@ -1045,6 +1056,15 @@ ol {
 
 .board-head .status {
   font-size: var(--step-1);
+}
+
+/* Live and Refresh, right after the status and the same size as it. */
+.board-head .refresh {
+  font-size: var(--step-1);
+}
+
+.board-head .refresh .button {
+  margin-block: 0;
 }
 
 .board-list {

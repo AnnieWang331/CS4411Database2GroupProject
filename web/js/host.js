@@ -238,17 +238,21 @@ export async function hostProjector(roomId) {
   const open = room.status === "open";
   const alert = alertBox();
   const chars = [...room.code];
-  const code = (extra) =>
-    h(
-      "p",
-      { class: `code ${extra}`, "aria-label": `Join code ${chars.join(" ")}` },
-      [chars.slice(0, 3), chars.slice(3)].map((group) =>
-        h("span", { class: "code-group", "aria-hidden": "true" }, group.map((c) => h("span", { class: "code-char" }, c))),
-      ),
+  const groups = () =>
+    [chars.slice(0, 3), chars.slice(3)].map((group) =>
+      h("span", { class: "code-group", "aria-hidden": "true" }, group.map((c) => h("span", { class: "code-char" }, c))),
     );
-  const how = () =>
+  // The huge code, and a small one inside the sentence (read out from a hidden copy, since a
+  // label on a plain span isn't announced reliably).
+  const code = () => h("p", { class: "code", "aria-label": `Join code ${chars.join(" ")}` }, groups());
+  const inlineCode = () => [
+    h("span", { class: "visually-hidden" }, chars.join(" ")),
+    h("span", { class: "code code-inline", "aria-hidden": "true" }, groups()),
+  ];
+  // The banner names the code; the big view sits right under the huge one, so it says "this code".
+  const how = ({ withCode }) =>
     open
-      ? ["Go to ", h("strong", {}, joinAddress()), " and type this code to join."]
+      ? ["Go to ", h("strong", {}, joinAddress()), " and type ", ...(withCode ? inlineCode() : ["this code"]), " to join."]
       : ["This room is closed. Nothing new can be added."];
 
   // The board, read-only, below the fold. It updates itself live; Refresh reloads it, and a
@@ -272,18 +276,19 @@ export async function hostProjector(roomId) {
 
   // Each piece twice: small in the banner (the real content), big in the full-screen view
   // (a copy for the eye, hidden from screen readers). Scrolling morphs one into the other.
+  // The banner has no code of its own: the huge one shrinks into the one in the sentence.
   const small = {
     topic: h("h1", { class: "proj-topic" }, room.topic),
-    code: code("code-small"),
-    how: h("p", { class: "proj-how" }, ...how()),
-    status: h("p", { class: "proj-status" }, statusBadge(room), counts[0]),
+    how: h("p", { class: "proj-how" }, ...how({ withCode: true })),
+    status: h("p", { class: "proj-status" }, counts[0], statusBadge(room)),
   };
   const big = {
     topic: h("p", { class: "projector-topic" }, room.topic),
-    code: code(""),
-    how: h("p", { class: "projector-how" }, ...how()),
-    status: h("p", { class: "projector-status" }, statusBadge(room), counts[1]),
+    how: h("p", { class: "projector-how" }, ...how({ withCode: false })),
+    status: h("p", { class: "projector-status" }, counts[1], statusBadge(room)),
   };
+  const bigCode = code();
+  const codeTarget = small.how.querySelector(".code-inline"); // none once the room is closed
   const refreshGroup = h("div", { class: "refresh" }, board.liveStatus ?? null, refreshButton);
   const hint = h(
     "p",
@@ -295,7 +300,7 @@ export async function hostProjector(roomId) {
   const hero = h(
     "div",
     { class: "proj-hero", "aria-hidden": "true" },
-    h("div", { class: "projector-main" }, big.topic, big.code, h("div", { class: "projector-join" }, big.how, big.status)),
+    h("div", { class: "projector-main" }, big.topic, bigCode, h("div", { class: "projector-join" }, big.how, big.status)),
     hint,
   );
   const head = h(
@@ -310,7 +315,7 @@ export async function hostProjector(roomId) {
     h(
       "div",
       { class: "proj-info" },
-      h("div", { class: "proj-line" }, small.topic, small.code, small.status, refreshGroup),
+      h("div", { class: "proj-line" }, small.topic, small.status, refreshGroup),
       small.how,
       alert,
     ),
@@ -318,7 +323,7 @@ export async function hostProjector(roomId) {
   );
   const spacer = h("div", { class: "proj-spacer" });
   const page = h("div", { class: `projector${open ? "" : " projector-closed"}` }, head, spacer, board);
-  const stopMorph = scrollMorph({ page, head, hero, spacer, board, small, big, hint, refreshGroup });
+  const stopMorph = scrollMorph({ page, head, hero, spacer, board, small, big, bigCode, codeTarget, hint, refreshGroup });
 
   // Leaving the page (or app.js dropping it unshown, after a faster route change) stops both
   // sockets, this one (who joined) and the board's (ideas), and the scroll listeners.
@@ -365,9 +370,10 @@ export async function hostProjector(roomId) {
 
 const ramp = (p, from, to) => Math.min(1, Math.max(0, (p - from) / (to - from)));
 
-function scrollMorph({ page, head, hero, spacer, board, small, big, hint, refreshGroup }) {
+function scrollMorph({ page, head, hero, spacer, board, small, big, bigCode, codeTarget, hint, refreshGroup }) {
   const keys = Object.keys(small);
   let moves = null; // per piece: how far and how much bigger the big one is
+  let codeMove = null; // the huge code onto the small one in the sentence (it rides with "how")
   let range = 1;
 
   function measure() {
@@ -376,23 +382,25 @@ function scrollMorph({ page, head, hero, spacer, board, small, big, hint, refres
       small[key].style.transform = "";
       big[key].style.transform = "";
     }
+    bigCode.style.transform = "";
     // One screen of scrolling, minus the banner, takes the page from big to small. The board
     // is at least that tall, so even a short one can be scrolled all the way.
     const headHeight = head.offsetHeight;
     spacer.style.height = `calc(100svh - ${headHeight}px)`;
     board.style.minHeight = `calc(100svh - ${headHeight}px)`;
     range = Math.max(1, spacer.offsetHeight);
-    moves = {};
-    for (const key of keys) {
-      const s = small[key].getBoundingClientRect();
-      const b = big[key].getBoundingClientRect();
-      const scale = parseFloat(getComputedStyle(big[key]).fontSize) / parseFloat(getComputedStyle(small[key]).fontSize);
-      moves[key] = {
+    const between = (bigEl, smallEl) => {
+      const s = smallEl.getBoundingClientRect();
+      const b = bigEl.getBoundingClientRect();
+      return {
         x: b.left + b.width / 2 - (s.left + s.width / 2),
         y: b.top + b.height / 2 - (s.top + s.height / 2),
-        scale,
+        scale: parseFloat(getComputedStyle(bigEl).fontSize) / parseFloat(getComputedStyle(smallEl).fontSize),
       };
-    }
+    };
+    moves = {};
+    for (const key of keys) moves[key] = between(big[key], small[key]);
+    codeMove = codeTarget ? between(bigCode, codeTarget) : null;
     draw();
   }
 
@@ -409,6 +417,13 @@ function scrollMorph({ page, head, hero, spacer, board, small, big, hint, refres
       big[key].style.transform = `translate(${-x * e}px, ${-y * e}px) scale(${1 + (1 / scale - 1) * e})`;
       big[key].style.opacity = 1 - ramp(p, 0.4, 0.5);
     }
+    // The huge code shrinks onto the sentence's code and hands over to it with the sentence.
+    // With no code in the sentence (closed room) it just fades.
+    if (codeMove) {
+      const { x, y, scale } = codeMove;
+      bigCode.style.transform = `translate(${-x * e}px, ${-y * e}px) scale(${1 + (1 / scale - 1) * e})`;
+    }
+    bigCode.style.opacity = 1 - ramp(p, codeMove ? 0.4 : 0.15, codeMove ? 0.5 : 0.4);
     hint.style.opacity = 1 - ramp(p, 0, 0.2);
     hero.style.visibility = p >= 0.5 ? "hidden" : "";
     refreshGroup.style.opacity = ramp(p, 0.5, 0.8);

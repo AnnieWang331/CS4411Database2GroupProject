@@ -288,6 +288,8 @@ export async function studentBoard(roomId, { embedded = false, onLoad } = {}) {
       isOpen()
         ? h("p", { class: "status status-open" }, "Open")
         : h("p", { class: "status status-closed" }, "Closed"),
+      // Live and Refresh sit right after the status (built further down, kept across redraws).
+      refreshGroup,
     );
   }
 
@@ -723,6 +725,7 @@ export async function studentBoard(roomId, { embedded = false, onLoad } = {}) {
   const refreshAlert = alertBox();
   const liveStatus = h("span", { class: "live", role: "status" });
   const refreshButton = h("button", { class: "button button-quiet", type: "button" }, "Refresh");
+  const refreshGroup = h("div", { class: "refresh" }, liveStatus, refreshButton);
 
   // Load the board again and merge it in. Live messages that arrive meanwhile wait, then go on
   // top, so a message newer than the copy isn't overwritten by it.
@@ -785,7 +788,6 @@ export async function studentBoard(roomId, { embedded = false, onLoad } = {}) {
         { class: "masthead" },
         // Back to the join page: the writing box rises back into the code field.
         h("a", { class: "wordmark", href: "#/", onclick: slideOnClick("#/", "morph") }, "Brainstorm Board"),
-        h("div", { class: "refresh" }, liveStatus, refreshButton),
       ),
       refreshAlert,
       head,
