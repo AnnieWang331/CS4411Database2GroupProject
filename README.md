@@ -188,6 +188,48 @@ board" on the projector view shows the same board to the instructor.
 `web/config.js` says where the APIs are. It points at `serve_local.py`'s ports, so you only need
 to change it if you used `--port` or `--ws-port`.
 
+### 8. Run the benchmark
+
+`scripts/benchmark.py` plays a class: every student is a thread, and they join, post, vote and
+comment at the same moment, one phase at a time. It makes its own table (`bench-<run id>`), so
+your demo data isn't touched, and deletes it afterwards (`--keep-table` keeps it):
+
+```sh
+python scripts/benchmark.py run                       # 30, 100 and 300 students, about 5 minutes
+python scripts/benchmark.py run --students 30 --scenarios hot-room,hot-idea   # a quick one
+```
+
+It prints a table per scenario and operation (median/95th/99th percentile latency, operations
+per second, transaction conflicts, throttles, capacity used) and checks that no vote or comment
+was lost. Everything goes to `benchmarks/results/bench-<run id>-*.csv`. The scenarios are:
+
+- `hot-room`: the whole class in one room, so all its traffic goes to one partition.
+- `many-rooms`: the same students and actions spread over 10 rooms.
+- `no-room-check`: like `hot-room`, but votes don't check the room in their transaction (open
+  question 3 in [docs/data-model.md](docs/data-model.md)), to see how many conflicts that check
+  causes.
+- `hot-idea`: everyone votes for the same idea at the same moment.
+- `query-vs-scan`: loading one board with a Query versus scanning the whole table.
+
+With `serve_local.py` running, `live` measures how long a live update takes to arrive: it posts
+ideas and votes over HTTP and times when the message reaches a WebSocket:
+
+```sh
+python scripts/benchmark.py live
+```
+
+`python scripts/bench_charts.py --run <run id> [--live-run <run id>]` draws the charts for the
+report into `benchmarks/charts/`.
+
+The students are split over one process per CPU (threads inside each), because one Python
+process can't send more than about 100-150 requests a second. `--processes N` changes that; the
+`client_cpu_max` column in `-phases.csv` shows if a process was still the bottleneck.
+
+DynamoDB Local is one Java process with no partitions, throttling or network, so its numbers
+only show that the code works under load. The numbers in our report come from AWS (see below).
+Local also gets slower after several runs (each one creates and deletes a table); restart it
+(`podman restart dynamodb-local`, then `create_table.py` and `seed.py` again) before a run.
+
 ### Settings
 
 Our code reads these environment variables:
@@ -236,8 +278,10 @@ web/                   The web client (plain HTML, CSS and JavaScript, no build 
   js/student.js        Student screens: join by code, then post, vote and comment
 scripts/               Scripts to create the table, add demo data, run the API and live
                        updates locally (live_local.py), check AWS access, show TTL
-                       deleting rooms (ttl_demo.py) and upload the web client (deploy_web.py)
-benchmarks/results/    Measurements we ran, as CSV (so far the TTL delete delays)
+                       deleting rooms (ttl_demo.py), upload the web client (deploy_web.py),
+                       run the benchmark (benchmark.py) and draw its charts (bench_charts.py)
+benchmarks/results/    Measurements we ran, as CSV: TTL delete delays and benchmark runs
+benchmarks/charts/     The benchmark charts for the report
 tests/                 Our tests (most run against DynamoDB Local; tests/infra checks
                        template.yaml)
 ```
@@ -392,6 +436,27 @@ guarantee.
 DynamoDB Local (3.3.2) didn't delete anything in our test: the items were still there 27 minutes
 after they expired. The script runs locally too (`DYNAMODB_ENDPOINT_URL=http://localhost:8000`),
 and shows that reads hide expired rooms, but the actual deleting can only be seen on AWS.
+
+### Run the benchmark on AWS
+
+The same commands work against AWS. `run` makes its own on-demand table next to the deployed
+one, so the demo table isn't touched, and deletes it at the end. `--provisioned` uses a table
+with 20 write units instead (inside the free tier), to see throttling. `live` goes through the
+deployed APIs (Streams, Lambda and API Gateway), using the `ApiUrl` and `WebSocketUrl` outputs:
+
+```sh
+unset DYNAMODB_ENDPOINT_URL
+export AWS_PROFILE=cs4411 AWS_REGION=ca-central-1
+python scripts/benchmark.py run
+python scripts/benchmark.py run --provisioned --scenarios hot-room --students 30,100
+python scripts/benchmark.py live --api-url <ApiUrl> --ws-url <WebSocketUrl>
+python scripts/benchmark.py cloudwatch <run id>   # a few minutes after a run
+```
+
+`cloudwatch` saves what DynamoDB itself counted during the run (throttled requests, transaction
+conflicts, capacity used, server-side latency) to `bench-<run id>-cloudwatch.csv`. A full run
+used about 140,000 write units on on-demand, roughly 10 cents. What we found is in
+[docs/benchmark.md](docs/benchmark.md).
 
 ### Tear down
 
