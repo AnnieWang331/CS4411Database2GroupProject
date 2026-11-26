@@ -363,17 +363,20 @@ with `GoneException`, and TTL removes whatever is left when the room expires.
   ideas and comments, and their text is capped, so we're nowhere near that.
 - **Partition limits.** Each partition is designed to handle up to 3,000 read units and 1,000
   write units per second [4]. Since a whole room lives in one partition, all of its traffic goes
-  to the same place. A classroom (tens to a few hundred people) shouldn't get close to that, but
-  we plan to measure it in our benchmark instead of assuming. Splitting a room across partitions
-  (*write sharding* [5]) isn't worth the extra complexity unless we actually see throttling.
+  to the same place. We measured it ([benchmark.md](benchmark.md)): with the whole class acting
+  at the same moment, one room did about 65-80 votes a second, while the successful votes used
+  under half of the 1,000 write units. From 100 students up the room was throttled too, on a
+  brand-new on-demand table. Splitting a room across partitions (*write sharding* [5]) wouldn't
+  fix the bigger problem, which is conflicts (next point), so we don't.
 - **Transaction conflicts are the real risk.** If two transactions touch the same item at the same
   time, one of them gets cancelled [6]. Two items get touched a lot:
   - the room item, which every post, vote and comment checks, and
   - a popular idea's counter when lots of people vote at once.
 
-  Our retries handle this. If the benchmark shows lots of conflicts, we could stop checking the
-  room on every vote (open question 3). WebSocket connects already skip the room check for this
-  reason (4.8).
+  Our retries handle most of this, but not all: at 300 students in one room, 4% of votes still
+  failed after five attempts. Without the room check, votes had 16 conflicts instead of 1,688
+  and none failed ([benchmark.md](benchmark.md) section 3, open question 3). WebSocket connects
+  already skip the room check for this reason (4.8).
 - **Transactions cost double.** Each item in a transaction is processed twice (prepare and
   commit), and cancelled transactions still use capacity [6]. A vote touches 3 items.
 - **The index is cheap.** GSI1 only changes when a room is created or closed, because only room
