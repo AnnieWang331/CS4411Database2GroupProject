@@ -118,6 +118,20 @@ jobs:
         run: |
           $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
           pytest -ra
+      - name: Local API with Invoke-RestMethod (the README's curl replacement)
+        run: |
+          $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
+          Start-Process python -ArgumentList "scripts/serve_local.py" -NoNewWindow
+          foreach ($i in 1..30) {
+            curl.exe -s -o NUL http://127.0.0.1:3000
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep 1
+          }
+          $room = Invoke-RestMethod -Method Post -Headers @{"X-User-Id" = "prof"} -Body '{"topic": "Indexing"}' `
+            -Uri http://127.0.0.1:3000/rooms
+          $found = Invoke-RestMethod "http://127.0.0.1:3000/codes/$($room.code)"
+          if ($found.room_id -ne $room.room_id) { throw "code lookup returned the wrong room" }
+          "room $($room.room_id) code $($room.code)"
       - name: Benchmark and charts (single process, as on Windows)
         run: |
           $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
