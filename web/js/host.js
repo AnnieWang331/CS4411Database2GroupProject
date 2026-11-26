@@ -1,16 +1,21 @@
 // Instructor screens (#8): start a room, list your rooms, show a room's join code, close it.
 // The projector counts who has joined, live (#10).
 import * as api from "./api.js";
-import { alertBox, busy, formatWhen, h } from "./dom.js";
+import { alertBox, busy, formatWhen, h, reducedMotion, slideOnClick, slideTo } from "./dom.js";
 import { connectLive } from "./live.js";
+import { studentBoard } from "./student.js";
 
 const MAX_TOPIC = 200; // api.md "Text limits"
 
 // Draw the current route again (app.js listens for hashchange).
 const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
+function wordmark(props = {}) {
+  return h("a", { class: "wordmark", href: "#/host", ...props }, "Brainstorm Board");
+}
+
 function masthead(...extra) {
-  return h("header", { class: "masthead" }, h("a", { class: "wordmark", href: "#/host" }, "Brainstorm board"), ...extra);
+  return h("header", { class: "masthead" }, wordmark(), ...extra);
 }
 
 function statusBadge(room) {
@@ -20,15 +25,15 @@ function statusBadge(room) {
 }
 
 // Two clicks to close: the first turns the button red and asks again, the second closes.
-// Closing can't be undone, and the button sits next to "Show code".
+// Closing can't be undone, and the button sits next to "Open Room".
 function closeButton(room, alert, onClosed) {
   let timer;
   let armed = false;
-  const button = h("button", { class: "button button-danger", type: "button" }, "Close room");
+  const button = h("button", { class: "button button-danger", type: "button" }, "Close Room");
   const disarm = () => {
     armed = false;
     delete button.dataset.armed;
-    button.textContent = "Close room";
+    button.textContent = "Close Room";
   };
   button.addEventListener("click", async () => {
     if (!armed) {
@@ -52,6 +57,7 @@ function closeButton(room, alert, onClosed) {
 
 function roomRow(room, refresh) {
   const alert = alertBox();
+  const codeHref = `#/host/${encodeURIComponent(room.room_id)}`;
   return h(
     "li",
     { class: "room" },
@@ -65,22 +71,54 @@ function roomRow(room, refresh) {
         statusBadge(room),
         h("span", {}, "Code ", h("span", { class: "room-code" }, room.code)),
         h("span", {}, `Started ${formatWhen(room.created_at)}`),
-        h("span", {}, `Deleted after ${formatWhen(room.expires_at)}`),
       ),
+      // Its own line, however wide the row is.
+      h("p", { class: "room-expiry" }, `Will be cleared after ${formatWhen(room.expires_at)}`),
     ),
     h(
       "div",
       { class: "room-actions" },
-      h("a", { class: "button button-quiet", href: `#/host/${encodeURIComponent(room.room_id)}` }, "Show code"),
       room.status === "open" ? closeButton(room, alert, refresh) : null,
+      h("a", { class: "button button-quiet", href: codeHref, onclick: slideOnClick(codeHref) }, "Open Room"),
     ),
     alert,
   );
 }
 
+// A new room's row: the list opens a gap, then the row pops into it. Resolves after a short
+// pause, so it can be seen before the page swipes to the code.
+async function popIn(row) {
+  row.scrollIntoView({ block: "nearest" });
+  if (reducedMotion()) return;
+  const { paddingTop } = getComputedStyle(row);
+  const gap = row.animate(
+    { height: ["0px", `${row.offsetHeight}px`], paddingBlock: ["0px", paddingTop], overflow: ["hidden", "hidden"] },
+    { duration: 220, easing: "ease-out" },
+  );
+  const pop = row.animate(
+    { opacity: [0, 1], transform: ["scale(0.75)", "none"] },
+    { duration: 380, delay: 160, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)", fill: "backwards" },
+  );
+  await Promise.allSettled([gap.finished, pop.finished]);
+  await new Promise((resolve) => setTimeout(resolve, 450));
+}
+
 export async function hostHome() {
   const listAlert = alertBox();
-  const list = h("div", {});
+  const list = h("div", { class: "host-list" });
+
+  // Newest first, like the API's order.
+  async function addRoom(room) {
+    let rows = list.querySelector(".rooms");
+    if (!rows) {
+      rows = h("ul", { class: "rooms" });
+      list.replaceChildren(rows);
+    }
+    const row = roomRow(room, refresh);
+    rows.prepend(row);
+    list.scrollTop = 0;
+    await popIn(row);
+  }
 
   async function refresh() {
     listAlert.textContent = "";
@@ -89,7 +127,7 @@ export async function hostHome() {
       list.replaceChildren(
         rooms.length
           ? h("ul", { class: "rooms" }, rooms.map((room) => roomRow(room, refresh)))
-          : h("p", { class: "empty" }, "No rooms yet. Start one above and its code shows up here."),
+          : h("p", { class: "empty" }, "No rooms were created in the last 24 hours!"),
       );
     } catch (err) {
       listAlert.textContent = err.message;
@@ -101,12 +139,16 @@ export async function hostHome() {
     id: "topic",
     name: "topic",
     maxLength: MAX_TOPIC,
-    "aria-describedby": "topic-hint",
+    "aria-label": "Topic",
     autocomplete: "off",
-    placeholder: "e.g. Ways to speed up the course search page",
+    placeholder: "Topic of the day",
   });
   const createAlert = alertBox();
-  const submit = h("button", { class: "button button-primary", type: "submit" }, "Start room");
+  const submit = h(
+    "button",
+    { class: "button button-primary", type: "submit", "aria-label": "Start", title: "Start" },
+    h("span", { class: "icon-arrow", "aria-hidden": "true" }),
+  );
   const form = h(
     "form",
     {
@@ -121,29 +163,47 @@ export async function hostHome() {
           return;
         }
         input.removeAttribute("aria-invalid");
-        const room = await busy(submit, createAlert, () => api.createRoom(topic));
-        if (room) location.hash = `#/host/${encodeURIComponent(room.room_id)}`;
+        // The button stays disabled through the animation, so a room can't be started twice.
+        const room = await busy(submit, createAlert, async () => {
+          const created = await api.createRoom(topic);
+          input.value = "";
+          await addRoom(created);
+          return created;
+        });
+        // Don't pull people back if they went somewhere else meanwhile.
+        if (room && page.isConnected) slideTo(`#/host/${encodeURIComponent(room.room_id)}`);
       },
     },
-    h("label", { htmlFor: "topic" }, "What should the class brainstorm?"),
     input,
     submit,
-    h("p", { class: "hint", id: "topic-hint" }, "Rooms stay open until you close them, and are deleted after 24 hours."),
+    createAlert,
   );
 
   const page = h(
     "div",
-    { class: "page" },
-    masthead(),
+    { class: "page page-host" },
+    // The wordmark here leads to the student side, the same as "Student? Join a room".
+    h("header", { class: "masthead" }, wordmark({ href: "#/", onclick: slideOnClick("#/", "open") })),
     h(
       "section",
-      { class: "section", "aria-labelledby": "start-heading" },
-      h("h1", { id: "start-heading" }, "Start a room"),
-      h("p", { class: "lede" }, "You get a six-letter code to put on the screen. Students type it on their phones to join."),
+      { class: "host-panel host-panel-start", "aria-labelledby": "start-heading" },
+      h(
+        "div",
+        { class: "panel-heading" },
+        h("h1", { id: "start-heading" }, "Start a Brainstorm Board"),
+        h("a", { class: "link", href: "#/", onclick: slideOnClick("#/", "open") }, "Student? Join a room"),
+      ),
+      h("p", { class: "lede" }, "Rooms stay open for 24 hours, or until closed."),
       form,
-      createAlert,
     ),
-    h("section", { class: "section", "aria-labelledby": "rooms-heading" }, h("h2", { id: "rooms-heading" }, "Your rooms"), listAlert, list),
+    h(
+      "section",
+      { class: "host-panel host-panel-rooms", "aria-labelledby": "rooms-heading" },
+      h("h2", { id: "rooms-heading" }, "List of Rooms"),
+      h("p", { class: "lede" }, "Record of a room will be cleared after 24 hours of creation."),
+      listAlert,
+      list,
+    ),
   );
   await refresh();
   return page;
@@ -178,49 +238,103 @@ export async function hostProjector(roomId) {
   const open = room.status === "open";
   const alert = alertBox();
   const chars = [...room.code];
-  const code = h(
-    "p",
-    { class: "code", "aria-label": `Join code ${chars.join(" ")}` },
+  const groups = () =>
     [chars.slice(0, 3), chars.slice(3)].map((group) =>
       h("span", { class: "code-group", "aria-hidden": "true" }, group.map((c) => h("span", { class: "code-char" }, c))),
-    ),
-  );
+    );
+  // The huge code, and a small one inside the sentence (read out from a hidden copy, since a
+  // label on a plain span isn't announced reliably).
+  const code = () => h("p", { class: "code", "aria-label": `Join code ${chars.join(" ")}` }, groups());
+  const inlineCode = () => [
+    h("span", { class: "visually-hidden" }, chars.join(" ")),
+    h("span", { class: "code code-inline", "aria-hidden": "true" }, groups()),
+  ];
+  // The banner names the code; the big view sits right under the huge one, so it says "this code".
+  const how = ({ withCode }) =>
+    open
+      ? ["Go to ", h("strong", {}, joinAddress()), " and type ", ...(withCode ? inlineCode() : ["this code"]), " to join."]
+      : ["This room is closed. Nothing new can be added."];
 
-  const count = h("span", { class: "joined", role: "status" });
+  // The board, read-only, below the fold. It updates itself live; Refresh reloads it, and a
+  // room found closed on a reload redraws this page.
+  const refreshButton = h("button", { class: "button button-quiet", type: "button" }, "Refresh");
+  const board = await studentBoard(roomId, {
+    embedded: true,
+    onLoad: (fresh) => {
+      if (fresh.status !== room.status) rerender();
+    },
+  });
+  refreshButton.addEventListener("click", () => board.refresh?.(refreshButton));
+
+  // How many people have joined, next to the status in both the big view and the banner.
+  const counts = [h("span", { class: "joined", role: "status" }), h("span", { class: "joined" })];
   const drawCount = () => {
-    count.textContent = joined.size === 1 ? "1 person joined" : `${joined.size} people joined`;
+    const text = joined.size === 1 ? "1 person joined" : `${joined.size} people joined`;
+    for (const count of counts) count.textContent = text;
   };
   drawCount();
 
-  const view = h(
+  // Each piece twice: small in the banner (the real content), big in the full-screen view
+  // (a copy for the eye, hidden from screen readers). Scrolling morphs one into the other.
+  // The banner has no code of its own: the huge one shrinks into the one in the sentence.
+  const small = {
+    topic: h("h1", { class: "proj-topic" }, room.topic),
+    how: h("p", { class: "proj-how" }, ...how({ withCode: true })),
+    status: h("p", { class: "proj-status" }, counts[0], statusBadge(room)),
+  };
+  const big = {
+    topic: h("p", { class: "projector-topic" }, room.topic),
+    how: h("p", { class: "projector-how" }, ...how({ withCode: false })),
+    status: h("p", { class: "projector-status" }, counts[1], statusBadge(room)),
+  };
+  const bigCode = code();
+  const codeTarget = small.how.querySelector(".code-inline"); // none once the room is closed
+  const refreshGroup = h("div", { class: "refresh" }, board.liveStatus ?? null, refreshButton);
+  const hint = h(
+    "p",
+    { class: "proj-hint" },
+    h("span", { class: "icon-arrow", "aria-hidden": "true" }),
+    "Scroll down for Brainstorm Board",
+    h("span", { class: "icon-arrow", "aria-hidden": "true" }),
+  );
+  const hero = h(
     "div",
-    { class: `projector${open ? "" : " projector-closed"}` },
+    { class: "proj-hero", "aria-hidden": "true" },
+    h("div", { class: "projector-main" }, big.topic, bigCode, h("div", { class: "projector-join" }, big.how, big.status)),
+    hint,
+  );
+  const head = h(
+    "header",
+    { class: "proj-head" },
     h(
       "div",
       { class: "projector-bar" },
-      h("a", { class: "link", href: "#/host" }, "Your rooms"),
-      h(
-        "div",
-        { class: "actions" },
-        h("a", { class: "button button-quiet", href: `#/room/${encodeURIComponent(room.room_id)}` }, "Open board"),
-        open && mine ? closeButton(room, alert, rerender) : null,
-      ),
+      wordmark({ onclick: slideOnClick("#/host", "back") }),
+      h("div", { class: "actions" }, open && mine ? closeButton(room, alert, rerender) : null),
     ),
     h(
       "div",
-      { class: "projector-main" },
-      h("h1", { class: "projector-topic" }, room.topic),
-      code,
-      open
-        ? h("p", { class: "projector-how" }, "Go to ", h("strong", {}, joinAddress()), " and type this code to join.")
-        : h("p", { class: "projector-how" }, "This room is closed. Nothing new can be added."),
+      { class: "proj-info" },
+      h("div", { class: "proj-line" }, small.topic, small.status, refreshGroup),
+      small.how,
       alert,
     ),
-    h("div", { class: "projector-foot" }, statusBadge(room), count),
+    hero,
   );
+  const spacer = h("div", { class: "proj-spacer" });
+  const page = h("div", { class: `projector${open ? "" : " projector-closed"}` }, head, spacer, board);
+  const stopMorph = scrollMorph({ page, head, hero, spacer, board, small, big, bigCode, codeTarget, hint, refreshGroup });
 
+  // Leaving the page (or app.js dropping it unshown, after a faster route change) stops both
+  // sockets, this one (who joined) and the board's (ideas), and the scroll listeners.
+  let live = null;
+  page.teardown = () => {
+    live?.stop();
+    board.teardown?.();
+    stopMorph();
+  };
   if (open) {
-    const live = connectLive(roomId, {
+    live = connectLive(roomId, {
       onMessage: (message) => {
         if (message.type === "participant_joined") {
           joined.add(message.participant.user_id);
@@ -245,7 +359,161 @@ export async function hostProjector(roomId) {
         return true;
       },
     });
-    view.teardown = () => live.stop();
   }
-  return view;
+  return page;
+}
+
+// ---- Projector scroll morph ----
+// At the top the page is the full-screen view. Scrolling down one screen shrinks it into the
+// banner: each big piece slides and scales onto its small twin, and they swap halfway. The
+// banner is sticky, and the big view sits inside it, so both stay put while the page scrolls.
+
+const ramp = (p, from, to) => Math.min(1, Math.max(0, (p - from) / (to - from)));
+
+function scrollMorph({ page, head, hero, spacer, board, small, big, bigCode, codeTarget, hint, refreshGroup }) {
+  const keys = Object.keys(small);
+  let moves = null; // per piece: how far and how much bigger the big one is
+  let codeMove = null; // the huge code onto the small one in the sentence (it rides with "how")
+  let range = 1;
+
+  function measure() {
+    if (!page.isConnected) return;
+    for (const key of keys) {
+      small[key].style.transform = "";
+      big[key].style.transform = "";
+    }
+    bigCode.style.transform = "";
+    // One screen of scrolling, minus the banner, takes the page from big to small. The board
+    // is at least that tall, so even a short one can be scrolled all the way.
+    const headHeight = head.offsetHeight;
+    spacer.style.height = `calc(100svh - ${headHeight}px)`;
+    board.style.minHeight = `calc(100svh - ${headHeight}px)`;
+    range = Math.max(1, spacer.offsetHeight);
+    const between = (bigEl, smallEl) => {
+      const s = smallEl.getBoundingClientRect();
+      const b = bigEl.getBoundingClientRect();
+      return {
+        x: b.left + b.width / 2 - (s.left + s.width / 2),
+        y: b.top + b.height / 2 - (s.top + s.height / 2),
+        scale: parseFloat(getComputedStyle(bigEl).fontSize) / parseFloat(getComputedStyle(smallEl).fontSize),
+      };
+    };
+    moves = {};
+    for (const key of keys) moves[key] = between(big[key], small[key]);
+    codeMove = codeTarget ? between(bigCode, codeTarget) : null;
+    draw();
+  }
+
+  function draw() {
+    if (!moves) return;
+    let p = Math.min(1, Math.max(0, window.scrollY / range));
+    if (reducedMotion()) p = p < 0.5 ? 0 : 1;
+    // Ease out, so the pieces clear the middle of the screen before the board scrolls up.
+    const e = 1 - (1 - p) ** 2;
+    for (const key of keys) {
+      const { x, y, scale } = moves[key];
+      small[key].style.transform = `translate(${x * (1 - e)}px, ${y * (1 - e)}px) scale(${scale + (1 - scale) * e})`;
+      small[key].style.opacity = ramp(p, 0.45, 0.55);
+      big[key].style.transform = `translate(${-x * e}px, ${-y * e}px) scale(${1 + (1 / scale - 1) * e})`;
+      big[key].style.opacity = 1 - ramp(p, 0.4, 0.5);
+    }
+    // The huge code shrinks onto the sentence's code and hands over to it with the sentence.
+    // With no code in the sentence (closed room) it just fades.
+    if (codeMove) {
+      const { x, y, scale } = codeMove;
+      bigCode.style.transform = `translate(${-x * e}px, ${-y * e}px) scale(${1 + (1 / scale - 1) * e})`;
+    }
+    bigCode.style.opacity = 1 - ramp(p, codeMove ? 0.4 : 0.15, codeMove ? 0.5 : 0.4);
+    hint.style.opacity = 1 - ramp(p, 0, 0.2);
+    hero.style.visibility = p >= 0.5 ? "hidden" : "";
+    refreshGroup.style.opacity = ramp(p, 0.5, 0.8);
+    refreshGroup.style.visibility = p >= 0.5 ? "" : "hidden"; // no clicking what you can't see
+    head.classList.toggle("proj-stuck", p >= 1);
+  }
+
+  // Snap: the page is never left half-way. One scroll down from the big view glides all the
+  // way to the banner; one scroll up from the top of the board glides back. Below that, the
+  // board scrolls normally.
+  let gliding = false;
+  let glideTimer = 0;
+  let lastY = window.scrollY;
+  let direction = 0; // +1 down, -1 up: the way the last scroll went
+
+  function glide(top) {
+    gliding = true;
+    clearTimeout(glideTimer);
+    glideTimer = setTimeout(() => (gliding = false), 900); // in case scrollend never comes
+    window.scrollTo({ top, behavior: reducedMotion() ? "auto" : "smooth" });
+  }
+
+  const between = () => window.scrollY > 1 && window.scrollY < range - 1;
+
+  const onWheel = (event) => {
+    if (!page.isConnected) return stop(); // never steer another page's scrolling
+    if (!moves || event.ctrlKey) return; // ctrl+wheel is zoom
+    const y = window.scrollY;
+    if (gliding && y < range + 1) {
+      event.preventDefault(); // the rest of this flick would cut the glide short
+      return;
+    }
+    if (event.deltaY > 0 && y < range - 1) {
+      event.preventDefault();
+      glide(range);
+    } else if (event.deltaY < 0 && y > 1 && y <= range + 1) {
+      event.preventDefault();
+      glide(0);
+    }
+  };
+
+  // Touch, keys and the scrollbar: when a scroll stops part-way, finish it in the direction
+  // it was going.
+  const settle = () => {
+    if (!page.isConnected) return stop();
+    clearTimeout(glideTimer);
+    if (gliding) {
+      gliding = false;
+      return;
+    }
+    if (moves && between()) glide(direction >= 0 ? range : 0);
+  };
+  let settleTimer = 0;
+
+  let frame = 0;
+  const onScroll = () => {
+    if (!page.isConnected) return stop();
+    const y = window.scrollY;
+    if (y !== lastY) direction = Math.sign(y - lastY);
+    lastY = y;
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(draw);
+    if (!("onscrollend" in window)) {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(settle, 150);
+    }
+  };
+  // Fires once the page is on screen, then on any resize (window, fonts, a wrapping topic).
+  const observer = new ResizeObserver(() => measure());
+  observer.observe(head);
+  observer.observe(hero);
+
+  // Everything above switches off together as soon as this page is left: any route change
+  // (app.js swaps the page on hashchange, including the redraw after closing the room).
+  // Aborting the controller removes every listener added with its signal.
+  const listening = new AbortController();
+  const { signal } = listening;
+  function stop() {
+    listening.abort();
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    clearTimeout(glideTimer);
+    clearTimeout(settleTimer);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true, signal });
+  window.addEventListener("wheel", onWheel, { passive: false, signal });
+  window.addEventListener("scrollend", settle, { signal });
+  window.addEventListener("hashchange", stop, { signal });
+  document.fonts?.ready.then(() => {
+    if (!signal.aborted) measure();
+  });
+  return stop;
 }
