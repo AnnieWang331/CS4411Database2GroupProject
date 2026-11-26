@@ -549,6 +549,10 @@ It writes a new one with the stack's `ApiUrl` and `WebSocketUrl` instead. Files 
 of the site (`node_modules/`, `package.json`, dotfiles) are skipped. Use `--stack` if you named
 the stack something else.
 
+Files are uploaded with `Cache-Control: max-age=0, s-maxage=86400`, so browsers check for a new
+copy on every load and a deploy never leaves a phone running old and new modules together.
+CloudFront keeps its own copy until the next deploy clears it.
+
 Then open `<WebUrl>/#/host` on a laptop and `WebUrl` on your phone. It can take a few minutes
 before CloudFront serves the new files.
 
