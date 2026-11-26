@@ -392,14 +392,14 @@ The template creates:
 
 ### What you need
 
-- An AWS account and a profile that can create these resources (we use one called `cs4411`)
+- An AWS account and a profile that can create these resources
 - The [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
   (`pip install aws-sam-cli` works too) and the AWS CLI
 
 ### Deploy
 
 ```sh
-export AWS_PROFILE=cs4411
+export AWS_PROFILE=<your-profile>
 sam build
 sam deploy --parameter-overrides BudgetEmail=you@example.com
 ```
@@ -475,7 +475,7 @@ otherwise it talks to DynamoDB Local:
 
 ```sh
 unset DYNAMODB_ENDPOINT_URL
-AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/seed.py
+AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1 python scripts/seed.py
 ```
 
 ### Show TTL deleting rooms
@@ -484,7 +484,7 @@ TTL removes a room some time after its `expires_at`, so seeing it takes two step
 makes a few rooms that expire in 5 minutes and saves their items to `benchmarks/results/`:
 
 ```sh
-AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/ttl_demo.py start
+AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1 python scripts/ttl_demo.py start
 ```
 
 Then run `check` with the run id it printed, as often as you like. It records which items are
@@ -493,7 +493,7 @@ it), and checks that the API already hides the rooms (`404`) before TTL deletes 
 only keeps records for 24 hours, so check at least twice a day until everything is gone:
 
 ```sh
-AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/ttl_demo.py check <run id> --api-url <ApiUrl>
+AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1 python scripts/ttl_demo.py check <run id> --api-url <ApiUrl>
 ```
 
 In our run (`benchmarks/results/ttl-20261124T213237Z-*`) TTL deleted all 27 items 11 to 17
@@ -513,7 +513,7 @@ deployed APIs (Streams, Lambda and API Gateway), using the `ApiUrl` and `WebSock
 
 ```sh
 unset DYNAMODB_ENDPOINT_URL
-export AWS_PROFILE=cs4411 AWS_REGION=ca-central-1
+export AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1
 python scripts/benchmark.py run
 python scripts/benchmark.py run --provisioned --scenarios hot-room --students 30,100
 python scripts/benchmark.py live --api-url <ApiUrl> --ws-url <WebSocketUrl>
@@ -545,6 +545,3 @@ sam delete
 | Alexander King Perocho | Alex           | [@perochoa](https://github.com/perochoa)         |
 | Sachin Singh           | Sachin         |                                                  |
 | Muhammad Haadi Khawaja | Muhammad       | [@mkhawa5](https://github.com/mkhawa5)           |
-
-Our Group Excel Sheet: \
-<https://docs.google.com/spreadsheets/d/1D12NDc1bbNykrmjbw6rxI_1_SfABOOpvLZ4hAwmwTV8/edit?pli=1&gid=0#gid=0>
