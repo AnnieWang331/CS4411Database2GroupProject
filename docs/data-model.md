@@ -35,8 +35,8 @@ Only three things live outside the room's partition:
 - Timestamps are ISO 8601 in UTC and always have the same length, for example
   `2026-10-18T14:05:31.120Z` (we always include milliseconds). Because they're the same length,
   sorting them as text also sorts them by time.
-- `room_id`, `idea_id` and `comment_id` are random UUIDs. For now `user_id` is made up by the
-  client, since we don't have logins yet.
+- `room_id`, `idea_id` and `comment_id` are random UUIDs. `user_id` is made up by the client,
+  since there are no logins (open question 2).
 - Every item has an `entity_type` (like `ROOM` or `IDEA`) so we can tell items apart.
 - Every item in a room has `expires_at` (a number, in seconds since 1970) copied from the room.
   DynamoDB's *Time to Live* (TTL) feature deletes items after that time, so the whole room gets
@@ -493,7 +493,7 @@ The runnable PostgreSQL version and a pattern-by-pattern table are in
 
 ## Open questions
 
-What we're doing for now is in brackets.
+Our answer, or what we did instead, is in brackets.
 
 1. **On-demand or provisioned?** On-demand is simpler but isn't covered by the free 25 units
    [14]. (Decided 2026-10-18: on-demand for the demo, paid with the new account's Free plan

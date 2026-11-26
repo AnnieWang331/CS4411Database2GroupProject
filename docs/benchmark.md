@@ -1,6 +1,6 @@
 # Benchmark: the brainstorm board under classroom load
 
-This is what we measured for issue #11, how we measured it, and what it means for the design.
+This is what we measured, how we measured it, and what it means for the design.
 `docs/data-model.md` section 5 said we'd measure the hot partition and transaction conflicts
 instead of assuming, so this is that. The script is `scripts/benchmark.py`, and every number
 here comes from a CSV in `benchmarks/results/` (run ids below). See the README to run it
@@ -84,7 +84,7 @@ transaction conflicts and throttles it hit, and the capacity it used. botocore h
 these, and every request asks for `ReturnConsumedCapacity`. `cloudwatch` then fetches what
 DynamoDB counted on its side for the same table and time window.
 
-Two things to keep in mind when reading the numbers:
+Three things to keep in mind when reading the numbers:
 
 - Our capacity numbers only count requests that succeeded. A cancelled transaction still uses
   capacity [1], but its error response doesn't say how much. CloudWatch has the true total
@@ -245,7 +245,6 @@ the local stack too (the tests run it there).
 
 Loading one board (30 ideas) 20 times each, at the end of the run. By then the table held
 15,273 items: 100 rooms of 30 ideas added for this test, plus every earlier scenario's rooms.
-
 
 | | Median latency | Read units per load |
 |---|---|---|

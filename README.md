@@ -12,7 +12,7 @@ changing data at scale. Amazon DynamoDB is a fully managed, serverless NoSQL key
 built for this problem. It offers automatic scaling, high availability, and low-latency access
 for predictable access patterns.
 
-To demonstrate DynamoDB, we are building a **live, collaborative brainstorm board**:
+To demonstrate DynamoDB, we built a **live, collaborative brainstorm board**:
 
 - An instructor creates a room for a topic.
 - Students join the room with a code and post ideas.
@@ -145,8 +145,9 @@ too). Then install the packages:
 pip install -r requirements-dev.txt
 ```
 
-This installs boto3 (the AWS library for Python) and websockets (for live updates on your own
-computer), plus pytest, ruff and cfn-lint, which we use for testing and linting.
+This installs boto3 (the AWS library for Python), websockets (for live updates on your own
+computer) and matplotlib (for the benchmark charts), plus pytest, ruff and cfn-lint, which we use
+for testing and linting.
 
 ### 2. Start DynamoDB Local
 
@@ -408,6 +409,7 @@ src/brainstorm/        The Python code that talks to DynamoDB
   stream_events.py     Turns DynamoDB Stream records into live-update messages
   broadcast.py         Sends those messages to everyone connected to the room
 web/                   The web client (plain HTML, CSS and JavaScript, no build step)
+  index.html           The one page; the scripts below fill it in
   config.js            Where the HTTP and WebSocket APIs are
   css/style.css        The styles (colours and sizes are at the top)
   js/app.js            Picks the screen to show from the URL (#/, #/room/..., #/host)
@@ -415,6 +417,7 @@ web/                   The web client (plain HTML, CSS and JavaScript, no build 
   js/dom.js            Small helpers for building the page
   js/host.js           Instructor screens: start a room, show its code, close it
   js/student.js        Student screens: join by code, then post, vote and comment
+  js/live.js           The live-update WebSocket (reconnects, keepalive, reload on reconnect)
 scripts/               Scripts to create the table, add demo data, run the API and live
                        updates locally (live_local.py), check AWS access, show TTL
                        deleting rooms (ttl_demo.py), upload the web client (deploy_web.py),
