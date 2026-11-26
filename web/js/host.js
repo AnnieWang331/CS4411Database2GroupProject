@@ -1,6 +1,8 @@
 // Instructor screens (#8): start a room, list your rooms, show a room's join code, close it.
+// The projector counts who has joined, live (#10).
 import * as api from "./api.js";
 import { alertBox, busy, formatWhen, h } from "./dom.js";
+import { connectLive } from "./live.js";
 
 const MAX_TOPIC = 200; // api.md "Text limits"
 
@@ -156,10 +158,12 @@ function joinAddress() {
 export async function hostProjector(roomId) {
   let room;
   let mine = false;
+  const joined = new Set(); // user ids
   try {
-    const [data, rooms] = await Promise.all([api.board(roomId), api.myRooms()]);
+    const [data, rooms, people] = await Promise.all([api.board(roomId), api.myRooms(), api.participants(roomId)]);
     room = data.room;
     mine = rooms.some((r) => r.room_id === roomId);
+    people.forEach((p) => joined.add(p.user_id));
   } catch (err) {
     return h(
       "div",
@@ -182,7 +186,13 @@ export async function hostProjector(roomId) {
     ),
   );
 
-  return h(
+  const count = h("span", { class: "joined", role: "status" });
+  const drawCount = () => {
+    count.textContent = joined.size === 1 ? "1 person joined" : `${joined.size} people joined`;
+  };
+  drawCount();
+
+  const view = h(
     "div",
     { class: `projector${open ? "" : " projector-closed"}` },
     h(
@@ -206,6 +216,36 @@ export async function hostProjector(roomId) {
         : h("p", { class: "projector-how" }, "This room is closed. Nothing new can be added."),
       alert,
     ),
-    h("div", { class: "projector-foot" }, statusBadge(room)),
+    h("div", { class: "projector-foot" }, statusBadge(room), count),
   );
+
+  if (open) {
+    const live = connectLive(roomId, {
+      onMessage: (message) => {
+        if (message.type === "participant_joined") {
+          joined.add(message.participant.user_id);
+          drawCount();
+        } else if (message.type === "room_closed" || message.type === "room_expired") {
+          live.stop();
+          rerender();
+        }
+      },
+      // Catch up on anyone who joined while the socket was down, and notice a closed room.
+      onSync: async () => {
+        const [data, people] = await Promise.all([api.board(roomId), api.participants(roomId)]).catch((err) => {
+          if (err.code !== "room_not_found") throw err;
+          return [null, []];
+        });
+        if (data?.room.status !== "open") {
+          rerender();
+          return false;
+        }
+        people.forEach((p) => joined.add(p.user_id));
+        drawCount();
+        return true;
+      },
+    });
+    view.teardown = () => live.stop();
+  }
+  return view;
 }
