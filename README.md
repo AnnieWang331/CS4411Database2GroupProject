@@ -59,13 +59,86 @@ from AWS that runs on your machine. You don't need an AWS account for any of the
 - Python 3.12 or newer
 - Docker or Podman (we use it to run DynamoDB Local, and PostgreSQL for the comparison)
 
+On Windows, read the next section first.
+
+### On Windows
+
+The commands in this README are for a Linux or macOS terminal. On Windows you have two options.
+
+**Option 1: WSL (recommended).** WSL runs Ubuntu inside Windows, so every command below works as
+written. Docker Desktop needs WSL anyway.
+
+1. Open PowerShell as administrator, run `wsl --install`, and restart. Open "Ubuntu" from the
+   Start menu and pick a username and password.
+2. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/). In its settings,
+   under Resources > WSL integration, turn it on for Ubuntu. If Docker says virtualization is
+   off, turn on "Intel VT-x" or "AMD-V"/"SVM" in your computer's BIOS settings.
+3. In the Ubuntu window, install Python's venv module with
+   `sudo apt update && sudo apt install -y python3-venv python3-pip`.
+4. Clone or unzip the project inside Ubuntu (for example in `~`, not under `/mnt/c`, which is
+   much slower), then follow the steps below. Use `python3` wherever this README says `python`
+   until you've turned on the virtual environment. Your Windows browser can open the
+   `http://127.0.0.1:...` addresses.
+
+**Option 2: PowerShell.** Everything except the PostgreSQL comparison (step 9) also works
+without Docker. These are the differences:
+
+- **Python**: install it from [python.org](https://www.python.org/downloads/windows/) and tick
+  "Add python.exe to PATH" on the first screen of the installer. If typing `python` opens the
+  Microsoft Store, use `py` instead, or turn off the `python.exe` entries under Settings > Apps >
+  Advanced app settings > App execution aliases.
+- **Virtual environment**: PowerShell blocks the activate script by default, so allow it once
+  first:
+
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+  py -m venv .venv
+  .venv\Scripts\Activate.ps1
+  ```
+
+- **DynamoDB Local without Docker**: install Java 17 or newer (for example
+  [Temurin](https://adoptium.net/)), download
+  [DynamoDB Local](https://d1ni2b6xgvw0s0.cloudfront.net/v3.x/dynamodb_local_latest.zip), unzip
+  it, and start it from the unzipped folder. Keep that window open; this replaces step 2.
+
+  ```powershell
+  java "-Djava.library.path=./DynamoDBLocal_lib" -jar DynamoDBLocal.jar -inMemory -sharedDb
+  ```
+
+- **Settings**: `export NAME=value` becomes `$env:NAME = "value"`. It only lasts for that
+  PowerShell window, so set `DYNAMODB_ENDPOINT_URL` again in every new window (for example the
+  second terminal in steps 6 and 7):
+
+  ```powershell
+  $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
+  $env:REQUIRE_DYNAMODB_LOCAL = "1"; pytest
+  ```
+
+- **Long commands**: put commands that end in `\` on one line (or end the lines in a backtick
+  `` ` `` instead).
+- **curl**: in Windows PowerShell, `curl` isn't the real curl and mangles the JSON. Use
+  `Invoke-RestMethod` instead:
+
+  ```powershell
+  Invoke-RestMethod -Method Post -Headers @{"X-User-Id" = "prof"} -Body '{"topic": "Indexing"}' `
+    -Uri http://127.0.0.1:3000/rooms
+  ```
+
+- **Benchmark**: Windows has no `fork`, so `benchmark.py` runs every student in one process.
+  It works, but local throughput is lower than on Linux or macOS.
+- **Port 8000**: if DynamoDB Local says the port is in use or access is forbidden (Windows
+  sometimes reserves it), use another port as in step 2.
+
+GitHub Actions runs these PowerShell steps on Windows on every pull request (the `test-windows`
+job in `.github/workflows/ci.yml`).
+
 ### 1. Install the Python packages
 
 Clone the repository, or unzip the submitted archive, and run every command below from its top
 folder (the one with this README). Nothing needs git.
 
 Make a virtual environment and turn it on. For example, run `python -m venv .venv` and then
-`source .venv/bin/activate` (on Windows, `.venv\Scripts\activate`; a pyenv virtualenv works
+`source .venv/bin/activate` (in PowerShell, see "On Windows" above; a pyenv virtualenv works
 too). Then install the packages:
 
 ```sh
@@ -86,8 +159,9 @@ If you use Podman, change `docker` to `podman` and use `docker.io/amazon/dynamod
 image name. Because of `-inMemory`, all the data disappears when the container stops, which is
 handy for testing. To stop it, run `docker stop dynamodb-local`.
 
-If something else already uses port 8000, use `-p 8001:8000` instead and `http://localhost:8001`
-wherever this README says `http://localhost:8000`.
+If something else already uses port 8000, use `-p 8001:8000` instead (or add `-port 8001` to the
+`java` command on Windows) and `http://localhost:8001` wherever this README says
+`http://localhost:8000`.
 
 ### 3. Create the table and add demo data
 

@@ -65,6 +65,83 @@ jobs:
           python scripts/create_table.py
           python scripts/seed.py
 
+  # The README's Windows (PowerShell) steps on a fresh Windows machine. Windows runners can't run
+  # Linux containers, so DynamoDB Local runs from AWS's JAR on Java instead (the README's no-Docker
+  # option). Checkout uses Windows line endings here, as a grader's clone or unzip would.
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      REQUIRE_DYNAMODB_LOCAL: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Virtual environment and packages
+        run: |
+          py -m venv .venv
+          .venv\Scripts\Activate.ps1
+          python -m pip install -r requirements-dev.txt
+          Add-Content $env:GITHUB_PATH "$PWD\.venv\Scripts"
+      - name: Download and start DynamoDB Local (JAR)
+        run: |
+          $base = "https://d1ni2b6xgvw0s0.cloudfront.net/v3.x/dynamodb_local_latest.zip"
+          Invoke-WebRequest $base -OutFile ddb.zip
+          Invoke-WebRequest "$base.sha256" -OutFile ddb.zip.sha256
+          $expected = (Get-Content ddb.zip.sha256).Split(" ")[0]
+          if ((Get-FileHash ddb.zip -Algorithm SHA256).Hash -ne $expected) { throw "checksum mismatch" }
+          Expand-Archive ddb.zip -DestinationPath $env:RUNNER_TEMP\dynamodb-local
+          Start-Process java -WorkingDirectory $env:RUNNER_TEMP\dynamodb-local `
+            -ArgumentList "-Djava.library.path=./DynamoDBLocal_lib", "-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"
+          foreach ($i in 1..30) {
+            curl.exe -s -o NUL http://localhost:8000
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Start-Sleep 1
+          }
+          exit 1
+      - name: Create table and seed demo data
+        run: |
+          $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
+          python scripts/create_table.py
+          python scripts/seed.py
+      - name: pytest
+        run: |
+          $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
+          pytest -ra
+      - name: Local API with Invoke-RestMethod (the README's curl replacement)
+        run: |
+          $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
+          Start-Process python -ArgumentList "scripts/serve_local.py" -NoNewWindow
+          foreach ($i in 1..30) {
+            curl.exe -s -o NUL http://127.0.0.1:3000
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep 1
+          }
+          $room = Invoke-RestMethod -Method Post -Headers @{"X-User-Id" = "prof"} -Body '{"topic": "Indexing"}' `
+            -Uri http://127.0.0.1:3000/rooms
+          $found = Invoke-RestMethod "http://127.0.0.1:3000/codes/$($room.code)"
+          if ($found.room_id -ne $room.room_id) { throw "code lookup returned the wrong room" }
+          "room $($room.room_id) code $($room.code)"
+      - name: Benchmark and charts (single process, as on Windows)
+        run: |
+          $env:DYNAMODB_ENDPOINT_URL = "http://localhost:8000"
+          python scripts/benchmark.py run --students 30 --scenarios hot-room
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $run = (Get-ChildItem benchmarks/results/bench-*-run.json | Sort-Object LastWriteTime | Select-Object -Last 1).Name -replace '^bench-(.*)-run\.json$', '$1'
+          python scripts/bench_charts.py --run $run --out $env:RUNNER_TEMP\charts
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python scripts/bench_charts.py --run 20261126T024200Z --provisioned-run 20261126T024530Z --live-run 20261126T024546Z --out $env:RUNNER_TEMP\report-charts
+
   sql:
     runs-on: ubuntu-latest
     timeout-minutes: 5
