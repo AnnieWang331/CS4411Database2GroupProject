@@ -467,6 +467,9 @@ A write that doesn't actually change anything doesn't create a stream record [12
 
 ## 7. Compared to a relational database (for the report)
 
+The runnable PostgreSQL version and a pattern-by-pattern table are in
+[relational.md](relational.md).
+
 - **Loading a board.** In SQL we'd join rooms, ideas and comments and count votes with
   `GROUP BY`. Here it's one `Query`, and the vote count is already stored on the idea instead of
   being counted each time.
