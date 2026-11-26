@@ -1,12 +1,12 @@
 # Relational baseline: the same board in PostgreSQL
 
-This is issue #12: the brainstorm board's data model rebuilt as an ordinary relational schema,
-so the report can compare the two designs pattern by pattern. `docs/data-model.md` section 7
+This is the brainstorm board's data model rebuilt as an ordinary relational schema, so the
+report can compare the two designs pattern by pattern. `docs/data-model.md` section 7
 has the short version; this has the runnable SQL and the full table.
 
 The files are in `sql/`:
 
-- `schema.sql`: six tables (rooms, participants, ideas, votes, comments; join codes are a
+- `schema.sql`: five tables (rooms, participants, ideas, votes, comments; join codes are a
   column with a partial unique index) and their constraints.
 - `queries.sql`: one function per access pattern in data-model section 1, named like its
   Python counterpart in `rooms.py`/`ideas.py` (`create_room`, `vote`, `load_board`, ...).

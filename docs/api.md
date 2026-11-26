@@ -15,7 +15,7 @@ the access patterns in section 1 of [data-model.md](data-model.md).
 
 ## Who is calling
 
-We don't have logins yet (see open question 2 in the data model), so the client makes up a user id,
+There are no logins (see open question 2 in the data model), so the client makes up a user id,
 saves it in the browser, and sends it on every request in an `X-User-Id` header. A user id is 1-64
 letters, digits, `_` or `-`. It can't contain `#`, because we put user ids inside keys like
 `VOTE#<user_id>#<idea_id>`. A missing or bad id gets `401 missing_user`.
@@ -26,7 +26,7 @@ write route needs it, and so do `/my-rooms` and `/my-votes`, since they answer "
 Because nobody checks the header, a room's owner id is all you need to close it. That's why
 responses never include `owner_id`: otherwise any student with the join code could read it and
 close the room. The owner's client already knows which rooms are its own from `POST /rooms` and
-`/my-rooms`. This is only a weak protection until we have real logins. Someone who guesses the
+`/my-rooms`. Without real logins this is only a weak protection. Someone who guesses the
 owner's id (demo ids like `prof` are easy to guess) can still close the room, and anyone can send
 another student's id to post or vote as them.
 

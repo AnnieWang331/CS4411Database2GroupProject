@@ -1,6 +1,6 @@
 # Benchmark: the brainstorm board under classroom load
 
-This is what we measured for issue #11, how we measured it, and what it means for the design.
+This is what we measured, how we measured it, and what it means for the design.
 `docs/data-model.md` section 5 said we'd measure the hot partition and transaction conflicts
 instead of assuming, so this is that. The script is `scripts/benchmark.py`, and every number
 here comes from a CSV in `benchmarks/results/` (run ids below). See the README to run it
@@ -84,7 +84,7 @@ transaction conflicts and throttles it hit, and the capacity it used. botocore h
 these, and every request asks for `ReturnConsumedCapacity`. `cloudwatch` then fetches what
 DynamoDB counted on its side for the same table and time window.
 
-Two things to keep in mind when reading the numbers:
+Three things to keep in mind when reading the numbers:
 
 - Our capacity numbers only count requests that succeeded. A cancelled transaction still uses
   capacity [1], but its error response doesn't say how much. CloudWatch has the true total
@@ -156,9 +156,11 @@ scenario, and they still conflict.
 
 The trade-off is open question 3: without the check, the API would accept votes after the room
 closes, and they'd show up on the closed board. The web client already hides voting in a closed
-room, so only someone calling the API directly could do that. For a classroom that's a small
-cost, so [TODO: group decision: drop the room check from votes (app change + data-model 4.4), or keep it
-and only report it?].
+room, so only someone calling the API directly could do that. We kept the check: a closed board
+should stay exactly as the class left it, and the conflicts only get this bad when a whole class
+votes in the same second, which a real class spreads over minutes. If a deployment did hit them,
+taking the room check out of the vote transaction (data-model 4.4) is a small change, and this
+scenario shows what it would buy.
 
 `hot-idea` is the worst case: everyone updates the same counter. The counter item is the hot
 spot here, and no change to the room check would help. 14 of 300 votes failed after five
@@ -243,7 +245,6 @@ the local stack too (the tests run it there).
 
 Loading one board (30 ideas) 20 times each, at the end of the run. By then the table held
 15,273 items: 100 rooms of 30 ideas added for this test, plus every earlier scenario's rooms.
-
 
 | | Median latency | Read units per load |
 |---|---|---|
