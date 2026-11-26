@@ -365,8 +365,8 @@ with `GoneException`, and TTL removes whatever is left when the room expires.
   write units per second [4]. Since a whole room lives in one partition, all of its traffic goes
   to the same place. We measured it ([benchmark.md](benchmark.md)): with the whole class acting
   at the same moment, one room did about 65-80 votes a second, while the successful votes used
-  under half of the 1,000 write units. From 100 students up the room was throttled too, on a
-  brand-new on-demand table. Splitting a room across partitions (*write sharding* [5]) wouldn't
+  about half of the 1,000 write units. From 100 students up the room was throttled too, on a
+  new on-demand table. Splitting a room across partitions (*write sharding* [5]) wouldn't
   fix the bigger problem, which is conflicts (next point), so we don't.
 - **Transaction conflicts are the real risk.** If two transactions touch the same item at the same
   time, one of them gets cancelled [6]. Two items get touched a lot:

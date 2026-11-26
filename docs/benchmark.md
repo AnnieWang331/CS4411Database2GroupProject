@@ -29,7 +29,7 @@ yourself.
 
 | | |
 |---|---|
-| Table | A new one per run (`bench-<run id>`), same schema as the app (`schema.py`), deleted after |
+| Table | A new one per run (`bench-<run id>`), same schema as the app (`schema.py`), deleted after. Every scenario and class size in a run shares it (see "Order" below) |
 | Region | ca-central-1, on-demand unless it says provisioned |
 | Client | One laptop (Linux, 12 CPUs); a single `Query` took about 37 ms round trip |
 | Code under test | The app's own data-layer functions (`rooms.py`, `ideas.py`), not copies |
@@ -66,6 +66,17 @@ same actions over minutes.
 
 Each runs with 30, 100 and 300 students.
 
+### Order
+
+All of a run's scenarios share one table, and they run one class size at a time: every scenario
+with 30 students, then every scenario with 100, then 300. Within a size the order is `hot-room`,
+`many-rooms`, `no-room-check`, `hot-idea`, then `query-vs-scan` once at the end. So only the
+first scenario (`hot-room` with 30 students) hit a table that hadn't seen any traffic yet.
+`many-rooms` always ran right after `hot-room` with the same class, and the 300-student runs came
+after the table had already handled the 30 and 100 ones. On-demand adjusts to the traffic a
+table has seen [4], so the later scenarios may have had a bit more room than the earlier ones.
+We didn't rerun them in a different order or on separate tables to check (see Limitations).
+
 ### What we record
 
 For every operation: latency, whether it succeeded, how many HTTP requests it took, how many
@@ -81,6 +92,11 @@ Two things to keep in mind when reading the numbers:
 - Retries are part of the latency, because that's what a student waits for. A vote that
   conflicts is retried up to five times by `transactions.py` with jittered backoff, and a
   throttled request is retried by botocore before that.
+- The latency numbers (median, 95th and 99th percentile, max) only count operations that
+  succeeded. An operation that failed after all its retries is in the error count but not in
+  the latency, even though it's usually the one that waited longest. So where there were
+  failures (mostly one room with 100 and 300 students), the real tail is a bit worse than the
+  tables show.
 
 ### Making sure we measured DynamoDB and not the laptop
 
@@ -110,7 +126,7 @@ of retries, which is why the median stays around 200 ms but the 95th percentile 
 second to 14 seconds. With 10 rooms, 100 students voted at 348 a second with a 95th percentile
 of 363 ms.
 
-The successful votes in the hot room used about 430-515 write units a second, under half the
+The successful votes in the hot room used about 430-515 write units a second, about half the
 1,000 per partition that AWS documents [2]. So the room didn't run out of partition capacity:
 the votes cancelled each other.
 
@@ -130,9 +146,12 @@ write. So in one room, every write conflicts with every other write happening at
 | Everyone votes for one idea | 72 | 475 | 1,235 |
 
 Without the room check, votes only touch their own vote item and the idea's counter, and
-conflicts almost disappear. No vote failed, and at 300 students the 95th percentile halved. A
-vote also gets cheaper: 4.5 write units instead of 6.5, since a transaction pays twice for every
-item it touches, and the room is one item fewer. Posts and comments still check the room in this
+conflicts almost disappear. No vote failed, and throughput went up: at 300 students, 187 votes a
+second instead of 66, and the 95th percentile halved (6,859 ms instead of 13,658). What's left
+of the wait is throttling, not conflicts: that scenario still had 2,558 throttled requests at 300
+students (380 at 100), so the room's partition was still the limit.
+A vote also gets cheaper: 4.5 write units instead of 6.5, since a transaction pays twice for
+every item it touches, and the room is one item fewer. Posts and comments still check the room in this
 scenario, and they still conflict.
 
 The trade-off is open question 3: without the check, the API would accept votes after the room
@@ -143,7 +162,7 @@ and only report it?].
 
 `hot-idea` is the worst case: everyone updates the same counter. The counter item is the hot
 spot here, and no change to the room check would help. 14 of 300 votes failed after five
-attempts, and the rest took up to 7 seconds. In a real class that's 300 people pressing the same
+attempts, and the rest took up to 7.5 seconds. In a real class that's 300 people pressing the same
 button within a second, which is unlikely, and the fix would be write sharding [3] (several
 counter items per idea, summed on read), which isn't worth it at our size.
 
@@ -155,10 +174,18 @@ events over the whole run. Ten rooms only got throttled at 300 students (1,134).
 
 On-demand doesn't mean unlimited. Every partition still has its limit [2], and on-demand only
 scales right away up to what the table has handled before; a brand-new table starts from a
-default [4]. Our tables were brand new and the load arrived in one burst, so this is close to
-the worst case. We can't see how many partitions a table has, so we can't say exactly which
-limit we hit. A single room can never be split across partitions though,
-since everything about it shares one partition key.
+default [4]. The table was brand new at the start of the run and each phase arrived in one
+burst, so this is close to the worst case. The later class sizes ran on the same table after
+the earlier ones (section 1, "Order"), so by 300 students it had seen some traffic already. We
+can't see how many partitions a table has, so we can't say exactly which limit we hit.
+
+Adaptive capacity is how DynamoDB deals with a hot partition [6]. It lets a busy partition use
+more of the table's capacity right away, and if the traffic stays uneven it can move the most
+used items onto their own partitions ("split for heat"). That doesn't help much here for two
+reasons. Our hottest items are single items, the room's `META` and, in `hot-idea`, one idea's
+counter, and one item can't be split, so it keeps the per-partition limit. And each of our
+phases lasted seconds, while splitting reacts to traffic that keeps going. We don't know if any
+split happened during the run, since DynamoDB doesn't show it.
 
 ## 5. Capacity modes
 
@@ -207,8 +234,10 @@ is that Lambda reads the stream again right away after finding records and waits
 finds none, but we didn't check that. Either way, a vote shows up on everyone's
 board within about a quarter of a second, and an idea within half a second.
 
-Locally, `serve_local.py` polls the stream every 0.2 s, so local live updates take about
-150-200 ms after the response.
+We only measured this on AWS. Locally, `serve_local.py` polls the stream every 0.2 s, so we'd
+expect local live updates to take up to about 200 ms after the response, but that's an estimate
+from the poll interval, not a measurement (see Limitations). `benchmark.py live` works against
+the local stack too (the tests run it there).
 
 ## 7. Query vs Scan
 
@@ -234,6 +263,18 @@ account (no lost updates, the same ops and errors). Its numbers don't mean much:
 process with no partitions, no throttling and, in our runs, no transaction conflicts at all. It
 also slowed down about 10x after many runs until we restarted it. Every number in this document
 is from AWS.
+
+## Limitations
+
+Things we didn't get to because of time, and how they affect the numbers above:
+
+- Live-update latency on the local stack wasn't measured, only estimated from the poll interval
+  (section 6). Only the AWS numbers are measured.
+- Every scenario shared one table and ran in a fixed order (section 1), so the later scenarios
+  ran on a table that had already seen traffic. We didn't rerun them in a different order or on
+  separate tables to see how much that changes.
+- The latency numbers leave out operations that failed after all their retries (section 1), so
+  the tail is a bit worse than shown wherever there were failures.
 
 ## References
 
