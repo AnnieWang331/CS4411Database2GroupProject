@@ -1,7 +1,7 @@
 // Student screens (#9): join by code, then the board (post, vote, comment).
 // Changes from other people arrive over the WebSocket (#10, live.js) and are applied in place.
 import * as api from "./api.js";
-import { alertBox, busy, formatTime, h } from "./dom.js";
+import { alertBox, busy, formatTime, h, slideOnClick, slideTo } from "./dom.js";
 import { connectLive } from "./live.js";
 
 // api.md "Text limits"
@@ -23,26 +23,48 @@ function readJson(key, fallback) {
   }
 }
 
+// TEMPORARY: remembering names is switched off, so every visit asks for a name. To turn it
+// back on, uncomment the three blocks marked "name memory" and delete this clean-up, which
+// clears names saved before it was switched off.
+try {
+  localStorage.removeItem(NAMES_KEY);
+  localStorage.removeItem(LAST_NAME_KEY);
+} catch {
+  // Storage blocked: nothing was saved.
+}
+
 function savedName(roomId) {
-  return readJson(NAMES_KEY, {})[roomId] ?? null;
+  // name memory: return readJson(NAMES_KEY, {})[roomId] ?? null;
+  return null;
 }
 
 function saveName(roomId, name) {
-  try {
-    const names = readJson(NAMES_KEY, {});
-    names[roomId] = name;
-    localStorage.setItem(NAMES_KEY, JSON.stringify(names));
-    localStorage.setItem(LAST_NAME_KEY, JSON.stringify(name));
-  } catch {
-    // Storage blocked: the name lasts until the page reloads.
-  }
+  // name memory:
+  // try {
+  //   const names = readJson(NAMES_KEY, {});
+  //   names[roomId] = name;
+  //   localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+  //   localStorage.setItem(LAST_NAME_KEY, JSON.stringify(name));
+  // } catch {
+  //   // Storage blocked: the name lasts until the page reloads.
+  // }
 }
 
 function masthead(...extra) {
-  return h("header", { class: "masthead" }, h("a", { class: "wordmark", href: "#/" }, "Brainstorm board"), ...extra);
+  return h("header", { class: "masthead" }, h("a", { class: "wordmark", href: "#/" }, "Brainstorm Board"), ...extra);
 }
 
 // ---- Home: type the join code ----
+
+// Same alphabet as the API's codes (keys.py): no I, L, O, 0 or 1.
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+// A made-up code for the placeholder, grouped like the projector shows it: "KXT 4PM".
+function exampleCode() {
+  const pick = () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  const chars = Array.from({ length: CODE_LENGTH }, pick);
+  return `${chars.slice(0, 3).join("")} ${chars.slice(3).join("")}`;
+}
 
 export function studentHome() {
   const input = h("input", {
@@ -54,7 +76,16 @@ export function studentHome() {
     autocapitalize: "characters",
     spellcheck: false,
     enterKeyHint: "go",
-    "aria-describedby": "code-hint",
+    placeholder: exampleCode(),
+    "aria-label": "Join code",
+  });
+  // Pasted codes lose their spaces and line breaks before maxLength can cut them short.
+  input.addEventListener("paste", (event) => {
+    event.preventDefault();
+    const text = event.clipboardData.getData("text").replace(/\s+/g, "");
+    const { selectionStart: start, selectionEnd: end, value, maxLength } = input;
+    const space = maxLength - (value.length - (end - start));
+    input.setRangeText(text.slice(0, space), start, end, "end");
   });
   const alert = alertBox();
   const submit = h("button", { class: "button button-primary", type: "submit" }, "Join");
@@ -79,26 +110,35 @@ export function studentHome() {
             throw err;
           }),
         );
-        if (room) location.hash = `#/room/${encodeURIComponent(room.room_id)}`;
+        // The field and button drop down into the board's writing box (style.css "morph").
+        if (room) slideTo(`#/room/${encodeURIComponent(room.room_id)}`, "morph");
       },
     },
-    h("label", { htmlFor: "code" }, "Join code"),
     input,
     submit,
-    h("p", { class: "hint", id: "code-hint" }, "It's on the screen at the front of the room."),
+    alert,
   );
 
   return h(
     "div",
-    { class: "page" },
-    masthead(h("a", { class: "link", href: "#/host" }, "Teaching? Start a room")),
+    { class: "page page-join" },
+    // The wordmark here leads to the instructor side, the same as "Teaching? Start a room".
+    h(
+      "header",
+      { class: "masthead" },
+      h("a", { class: "wordmark", href: "#/host", onclick: slideOnClick("#/host", "close") }, "Brainstorm Board"),
+    ),
     h(
       "section",
-      { class: "section", "aria-labelledby": "join-heading" },
-      h("h1", { id: "join-heading" }, "Join a brainstorm"),
-      h("p", { class: "lede" }, "Type the code your instructor put up, pick a name, and start adding ideas."),
+      { class: "join-panel", "aria-labelledby": "join-heading" },
+      h(
+        "div",
+        { class: "panel-heading" },
+        h("h1", { id: "join-heading" }, "Join a Brainstorm Board"),
+        h("a", { class: "link", href: "#/host", onclick: slideOnClick("#/host", "close") }, "Teaching? Start a room"),
+      ),
+      h("p", { class: "lede" }, "Type in the code on the board!"),
       form,
-      alert,
     ),
   );
 }
@@ -116,37 +156,67 @@ function gonePage(err) {
   );
 }
 
-// A textarea with a "n left" counter under it.
-function textBox({ id, label, max, rows, placeholder, value = "" }) {
+// Browsers with CSS field-sizing grow the textarea themselves; the rest get fit() below.
+const growsItself = globalThis.CSS?.supports?.("field-sizing", "content") ?? false;
+
+function fit(textarea) {
+  if (growsItself || !textarea.isConnected) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight + textarea.offsetHeight - textarea.clientHeight}px`;
+}
+
+// A one-line textarea that grows with its text, with a "n left" counter that only shows near
+// the limit. Enter sends; Shift+Enter starts a new line.
+function textBox({ id, label, max, placeholder, value = "" }) {
   const counterId = `${id}-count`;
   const textarea = h("textarea", {
     class: "input textarea",
     id,
     maxLength: max,
-    rows,
+    rows: 1,
     placeholder,
     value,
+    enterKeyHint: "send",
+    "aria-label": label,
     "aria-describedby": counterId,
   });
   const counter = h("span", { class: "counter", id: counterId });
   const update = () => {
     const left = max - textarea.value.length;
-    counter.textContent = `${left} left`;
+    counter.textContent = left <= Math.min(50, max / 5) ? `${left} left` : "";
     counter.classList.toggle("counter-low", left <= Math.min(30, max / 10));
+    fit(textarea);
   };
   textarea.addEventListener("input", update);
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    textarea.form?.requestSubmit();
+  });
   update();
-  return { textarea, counter, update, label: h("label", { htmlFor: id }, label) };
+  return { textarea, counter, update };
 }
 
-export async function studentBoard(roomId) {
+// The blue send button: an up arrow, named for screen readers.
+function sendButton(label) {
+  return h(
+    "button",
+    { class: "button button-primary button-send", type: "submit", "aria-label": label, title: label },
+    h("span", { class: "icon-arrow icon-up", "aria-hidden": "true" }),
+  );
+}
+
+// The board. With embedded: true it's just the idea list, read-only, for the instructor's
+// projector page: no name, so no posting, voting or commenting. onLoad(room) runs after every
+// load, and the returned element has refresh(button), liveStatus and teardown().
+export async function studentBoard(roomId, { embedded = false, onLoad } = {}) {
   const state = {
     room: null,
     ideas: [], // newest first, as the API returns them
     comments: {}, // idea_id -> [oldest first]
     voted: new Set(), // idea ids
     sort: "newest",
-    name: savedName(roomId),
+    name: embedded ? null : savedName(roomId),
     renaming: false,
     expanded: new Set(), // idea ids with their comments open
     drafts: new Map(), // idea id -> unsent comment
@@ -167,9 +237,13 @@ export async function studentBoard(roomId) {
     state.ideas = board.ideas;
     state.comments = board.comments;
     state.voted = new Set(voted);
+    onLoad?.(state.room);
   } catch (err) {
+    if (embedded) return h("p", { class: "alert", role: "alert" }, err.message);
     return gonePage(err);
   }
+
+  let page; // the element returned below: the whole board, or the embedded list
 
   const isOpen = () => state.room.status === "open";
   const canWrite = () => isOpen() && state.name && !state.renaming;
@@ -189,7 +263,8 @@ export async function studentBoard(roomId) {
 
   function roomGone(err) {
     live.stop();
-    page.replaceWith(gonePage(err));
+    // The embedded list sits inside the projector page, so it just says so in place.
+    page.replaceWith(embedded ? h("p", { class: "alert", role: "alert" }, err.message) : gonePage(err));
   }
 
   // Like dom.busy, but a closed or deleted room redraws the page instead of showing an alert.
@@ -208,26 +283,28 @@ export async function studentBoard(roomId) {
     }
   }
 
-  // -- Top: topic, status, code --
+  // -- Top: topic, code, status --
 
   const head = h("div", { class: "board-head" });
   function drawHead() {
     const room = state.room;
-    const meta = h(
-      "p",
-      { class: "room-meta" },
+    const chars = [...room.code];
+    head.classList.toggle("board-closed", !isOpen());
+    head.replaceChildren(
+      h("h1", { class: "board-topic" }, room.topic),
+      h(
+        "p",
+        { class: "board-code", "aria-label": `Join code ${chars.join(" ")}` },
+        h("span", { "aria-hidden": "true" }, `${room.code.slice(0, 3)} ${room.code.slice(3)}`),
+      ),
       isOpen()
-        ? h("span", { class: "status status-open" }, "Open")
-        : h("span", { class: "status status-closed" }, "Closed"),
-      h("span", {}, "Code ", h("span", { class: "room-code" }, room.code)),
-      state.name && !state.renaming ? h("span", {}, "You're ", h("strong", {}, state.name)) : null,
+        ? h("p", { class: "status status-open" }, "Open")
+        : h("p", { class: "status status-closed" }, "Closed"),
     );
-    const closed = h("p", { class: "banner" }, "This room is closed. You can still read everything, but nothing new can be added.");
-    head.replaceChildren(h("h1", { class: "board-topic" }, room.topic), meta, ...(isOpen() ? [] : [closed]));
   }
 
 
-  // -- Join form (asks for a name) or the idea composer --
+  // -- Bottom bar: the name form, the idea composer, or a closed notice --
 
   const nameInput = h("input", {
     class: "input",
@@ -235,14 +312,31 @@ export async function studentBoard(roomId) {
     maxLength: MAX_NAME,
     autocomplete: "nickname",
     enterKeyHint: "go",
-    "aria-describedby": "name-hint",
+    placeholder: "Your name",
+    "aria-label": "Your name",
   });
   const nameAlert = alertBox();
   const joinButton = h("button", { class: "button button-primary", type: "submit" }, "Join");
+  const nameRow = h("div", { class: "bar-row" });
+  const cancelRename = h(
+    "button",
+    {
+      class: "button-link",
+      type: "button",
+      onclick: () => {
+        state.renaming = false;
+        nameAlert.textContent = "";
+        nameInput.removeAttribute("aria-invalid");
+        drawAll();
+        idea.textarea.focus();
+      },
+    },
+    "Cancel",
+  );
   const joinForm = h(
     "form",
     {
-      class: "field",
+      class: "bar-form",
       onsubmit: async (event) => {
         event.preventDefault();
         const name = nameInput.value.trim();
@@ -264,10 +358,8 @@ export async function studentBoard(roomId) {
         idea.textarea.focus();
       },
     },
-    h("label", { htmlFor: "display-name" }, "Your name"),
-    nameInput,
-    joinButton,
-    h("p", { class: "hint", id: "name-hint" }, "Shown next to your ideas and comments. A nickname is fine."),
+    nameRow,
+    h("div", { class: "bar-field" }, nameInput, joinButton),
     nameAlert,
   );
 
@@ -275,12 +367,12 @@ export async function studentBoard(roomId) {
     id: "idea-body",
     label: "Your idea",
     max: MAX_IDEA,
-    rows: 3,
     placeholder: "One idea at a time",
   });
   const ideaAlert = alertBox();
   const postStatus = h("p", { class: "visually-hidden", role: "status" });
-  const postButton = h("button", { class: "button button-primary", type: "submit" }, "Post idea");
+  const postButton = sendButton("Post idea");
+  const who = h("strong", { class: "bar-who" });
   const renameButton = h(
     "button",
     {
@@ -298,7 +390,7 @@ export async function studentBoard(roomId) {
   const composer = h(
     "form",
     {
-      class: "compose",
+      class: "bar-form",
       onsubmit: async (event) => {
         event.preventDefault();
         const body = idea.textarea.value.trim();
@@ -318,26 +410,28 @@ export async function studentBoard(roomId) {
         postStatus.textContent = "Your idea is on the board.";
       },
     },
-    idea.label,
-    idea.textarea,
-    h("div", { class: "compose-foot" }, idea.counter, renameButton, postButton),
+    h("div", { class: "bar-row" }, who, renameButton, idea.counter),
+    h("div", { class: "bar-field" }, idea.textarea, postButton),
     ideaAlert,
     postStatus,
   );
 
-  const writeSlot = h("div", { class: "write" });
-  function drawWrite() {
+  const bar = h("div", { class: "bar" });
+  function drawBar() {
     if (!isOpen()) {
-      writeSlot.replaceChildren();
+      bar.replaceChildren(h("p", { class: "banner" }, "This room is closed. You can still read everything, but nothing new can be added."));
     } else if (!state.name || state.renaming) {
-      if (!nameInput.value) nameInput.value = readJson(LAST_NAME_KEY, "");
-      writeSlot.replaceChildren(
-        h("h2", {}, state.renaming ? "Change your name" : "Join this room"),
-        ...(state.renaming ? [] : [h("p", { class: "lede" }, "Pick a name to post, vote and comment.")]),
-        joinForm,
+      // name memory: if (!nameInput.value) nameInput.value = readJson(LAST_NAME_KEY, "");
+      nameRow.replaceChildren(
+        h("p", { class: "bar-label" }, state.renaming ? "Change your name" : "Pick a name to post, vote and comment"),
+        ...(state.renaming ? [cancelRename] : []),
       );
+      joinButton.textContent = state.renaming ? "Change" : "Join";
+      bar.replaceChildren(joinForm);
     } else {
-      writeSlot.replaceChildren(composer);
+      who.textContent = state.name;
+      bar.replaceChildren(composer);
+      fit(idea.textarea);
     }
   }
 
@@ -441,7 +535,7 @@ export async function studentBoard(roomId) {
         id: `comment-${id}`,
         label: "Your comment",
         max: MAX_COMMENT,
-        rows: 2,
+        placeholder: "Add a comment",
         value: state.drafts.get(id) ?? "",
       });
       box.textarea.addEventListener("input", () => state.drafts.set(id, box.textarea.value));
@@ -469,9 +563,8 @@ export async function studentBoard(roomId) {
             box.textarea.focus();
           },
         },
-        box.label,
-        box.textarea,
-        h("div", { class: "compose-foot" }, box.counter, submit),
+        h("div", { class: "bar-field" }, box.textarea, submit),
+        box.counter,
         alert,
       );
     }
@@ -650,16 +743,17 @@ export async function studentBoard(roomId) {
     try {
       const [board, voted] = await fetchBoard();
       applyBoard(board, voted);
+      onLoad?.(state.room);
     } finally {
       const waiting = queued;
       queued = null;
       waiting.forEach(onMessage);
     }
   }
-  async function refresh() {
-    await attempt(refreshButton, refreshAlert, reload);
+  async function refresh(button = refreshButton) {
+    await attempt(button, refreshAlert, reload);
   }
-  refreshButton.addEventListener("click", refresh);
+  refreshButton.addEventListener("click", () => refresh());
 
   const LIVE_TEXT = { connecting: "Connecting…", live: "Live", offline: "Reconnecting…" };
   function drawLive(liveState) {
@@ -669,32 +763,48 @@ export async function studentBoard(roomId) {
 
   function drawAll() {
     drawHead();
-    drawWrite();
+    drawBar();
     drawList();
     if (!isOpen()) liveStatus.textContent = "";
   }
 
-  const page = h(
-    "div",
-    { class: "page page-board" },
-    masthead(h("div", { class: "refresh" }, liveStatus, refreshButton)),
-    refreshAlert,
-    head,
-    writeSlot,
+  const listSection = h(
+    "section",
+    { class: "board-list", "aria-labelledby": "ideas-heading" },
     h(
-      "section",
-      { class: "section", "aria-labelledby": "ideas-heading" },
-      h(
-        "div",
-        { class: "list-bar" },
-        ideaCount,
-        h("fieldset", { class: "sort" }, h("legend", { class: "visually-hidden" }, "Sort ideas"), sortButtons),
-      ),
-      empty,
-      list,
+      "div",
+      { class: "list-bar" },
+      ideaCount,
+      h("fieldset", { class: "sort" }, h("legend", { class: "visually-hidden" }, "Sort ideas"), sortButtons),
     ),
+    empty,
+    list,
   );
-  drawAll();
+
+  if (embedded) {
+    // The projector shows liveStatus in its own banner, next to its own Refresh button.
+    page = h("div", { class: "board-embed" }, refreshAlert, listSection);
+    page.refresh = refresh;
+    page.liveStatus = liveStatus;
+    drawList();
+  } else {
+    page = h(
+      "div",
+      { class: "page page-board" },
+      h(
+        "header",
+        { class: "masthead" },
+        // Back to the join page: the writing box rises back into the code field.
+        h("a", { class: "wordmark", href: "#/", onclick: slideOnClick("#/", "morph") }, "Brainstorm Board"),
+        h("div", { class: "refresh" }, liveStatus, refreshButton),
+      ),
+      refreshAlert,
+      head,
+      listSection,
+      bar,
+    );
+    drawAll();
+  }
 
   // A closed room refuses sockets and gets no more changes, so only open rooms connect.
   const live = isOpen()

@@ -48,6 +48,35 @@ export async function busy(button, alert, action) {
   }
 }
 
+export const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Go to a route with the page swipe (app.js plays it), instead of a plain link's instant swap.
+// "forward" brings the new page in from the right, "back" from the left. "close" slides the
+// instructor page's two halves in from the sides like doors; "open" slides them back out.
+// "morph" moves the join page's code field into the board's writing box, and back.
+let slideNext = null;
+
+export function slideTo(hash, direction = "forward") {
+  slideNext = direction;
+  location.hash = hash;
+}
+
+// onclick for a link that swipes. Ctrl/Cmd/Shift+click still opens a new tab or window.
+export function slideOnClick(hash, direction) {
+  return (event) => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    slideTo(hash, direction);
+  };
+}
+
+// app.js: the direction if slideTo started this navigation, else null. Asking resets it.
+export function takeSlide() {
+  const direction = slideNext;
+  slideNext = null;
+  return direction;
+}
+
 export function alertBox() {
   return h("p", { class: "alert", role: "alert" });
 }

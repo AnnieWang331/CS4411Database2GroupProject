@@ -188,6 +188,16 @@ ol {
   background: var(--blue-dark);
 }
 
+/* Right arrow, drawn in the button's text colour. */
+.icon-arrow {
+  width: 1.5rem;
+  height: 1.5rem;
+  background: currentColor;
+  --arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12h16M13 5l7 7-7 7'/%3E%3C/svg%3E");
+  -webkit-mask: var(--arrow) center / contain no-repeat;
+  mask: var(--arrow) center / contain no-repeat;
+}
+
 .button-quiet {
   background: transparent;
   color: var(--blue);
@@ -274,6 +284,12 @@ ol {
   color: var(--ink-soft);
 }
 
+.room-expiry {
+  margin-top: 0.25rem;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
 .room-code {
   font-weight: 800;
   color: var(--ink);
@@ -325,16 +341,474 @@ ol {
   }
 }
 
+/* ---- Full-screen pages (join, instructor home) ----
+   The wordmark pinned top left, the content centred on the screen. The wordmark sits in the
+   same place as on the projector page, so it can stay still while the page changes. */
+
+.page-join,
+.page-host {
+  --bar: 6.5rem; /* kept clear above (wordmark) and below the content */
+  position: relative;
+  max-width: 120rem;
+  height: 100vh;
+  height: 100svh;
+  min-height: 28rem;
+  padding: 0;
+}
+
+.page-join .masthead,
+.page-host .masthead {
+  position: absolute;
+  z-index: 1; /* above the instructor page's opaque halves */
+  top: var(--gutter);
+  left: var(--gutter);
+  padding: 0;
+}
+
+.panel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+/* Keep the field and its button on one line. */
+.page-join .input,
+.page-host .input {
+  flex-basis: 10rem;
+}
+
+/* A line of text hanging under the field, out of the flow: the content is centred, so
+   anything taking up space here would move everything else. */
+.page-join .field,
+.page-host .field {
+  position: relative;
+}
+
+.page-join .field .alert,
+.page-host .field .alert {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* ---- Join page ---- */
+
+.page-join {
+  display: grid;
+  place-items: center;
+}
+
+.join-panel {
+  width: 100%;
+  max-width: calc(42rem + 2 * var(--gutter));
+  padding: var(--bar) var(--gutter);
+}
+
+/* ---- Instructor home ----
+   Two halves of the board: start a room on the left, your rooms on the right, both centred
+   on the screen. A long list scrolls inside its half. Stacked on narrow screens. */
+
+.page-host {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* Opaque, so the halves cover the join page when they slide over it (doors-close). */
+.host-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--bar) var(--gutter); /* same left edge as the wordmark */
+  background: var(--board);
+}
+
+.host-panel-rooms {
+  position: relative;
+  container-type: inline-size;
+  padding-bottom: 1.5rem;
+}
+
+/* The line down the middle. Each half draws its own copy on its inner edge, so both doors
+   carry one when they slide apart. On the page the two copies sit exactly on top of each
+   other. */
+.host-panel-start {
+  position: relative;
+}
+
+.host-panel-start::after,
+.host-panel-rooms::before {
+  content: "";
+  position: absolute;
+  top: var(--bar);
+  bottom: 1.5rem;
+  border-left: 2px solid var(--ghost);
+}
+
+.host-panel-start::after {
+  right: -1px;
+}
+
+.host-panel-rooms::before {
+  left: -1px;
+}
+
+/* Balances the bar above, so a short list is centred; gives up its space to a long one. */
+.host-panel-rooms::after {
+  content: "";
+  flex: 0 9999 calc(var(--bar) - 3.5rem);
+}
+
+/* Wider than the panel by the padding, so a popping row and focus rings aren't clipped. A long
+   list fades out at the bottom to show there's more. */
+.host-list {
+  min-height: 0;
+  margin: 0 -1rem;
+  padding: 0 1rem 2rem;
+  overflow: hidden auto;
+  -webkit-mask-image: linear-gradient(to top, transparent, black 2rem);
+  mask-image: linear-gradient(to top, transparent, black 2rem);
+}
+
+/* Not enough room for the text and the buttons side by side. */
+@container (max-width: 30rem) {
+  .room {
+    grid-template-columns: 1fr;
+  }
+
+  .room-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 52rem) {
+  .page-host {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100svh;
+    align-content: start;
+  }
+
+  .host-panel-start::after,
+  .host-panel-rooms::before {
+    content: none;
+  }
+
+  .host-panel {
+    padding: var(--bar) var(--gutter) 3rem;
+  }
+
+  .host-panel:not(.host-panel-rooms) {
+    min-height: 60vh;
+    min-height: 60svh;
+    padding-bottom: var(--bar);
+  }
+
+  .host-panel-rooms {
+    justify-content: flex-start;
+    padding-top: 2rem;
+    border-top: 2px solid var(--ghost);
+  }
+}
+
+/* ---- Page transitions (app.js show) ----
+   The wordmark is in the same place on every full-screen page, so it always stays still.
+
+   Swipe: after starting a room or "Open Room", the old page leaves to the left and the code
+   comes in from the right. Going back (the wordmark) is the mirror image.
+
+   Doors: from the join page to the instructor page, its two halves slide in from the sides and
+   meet over the join page. Going back, they slide apart and uncover it. */
+
+.transitioning .wordmark {
+  view-transition-name: wordmark;
+}
+
+.transitioning::view-transition-group(wordmark),
+.transitioning::view-transition-new(wordmark) {
+  animation: none;
+}
+
+/* Above the doors, which are opaque and would otherwise slide over it. */
+.transitioning::view-transition-group(wordmark) {
+  z-index: 1;
+}
+
+.transitioning::view-transition-old(wordmark) {
+  display: none;
+}
+
+.slide-forward::view-transition-old(root),
+.slide-forward::view-transition-new(root),
+.slide-back::view-transition-old(root),
+.slide-back::view-transition-new(root) {
+  animation: 367ms cubic-bezier(0.65, 0, 0.2, 1) both;
+  mix-blend-mode: normal;
+}
+
+.slide-forward::view-transition-old(root) {
+  animation-name: slide-out;
+}
+
+.slide-forward::view-transition-new(root) {
+  animation-name: slide-in;
+}
+
+.slide-back::view-transition-old(root) {
+  animation-name: slide-out-back;
+}
+
+.slide-back::view-transition-new(root) {
+  animation-name: slide-in-back;
+}
+
+.doors-close .host-panel-start,
+.doors-open .host-panel-start {
+  view-transition-name: door-left;
+}
+
+.doors-close .host-panel-rooms,
+.doors-open .host-panel-rooms {
+  view-transition-name: door-right;
+}
+
+/* The join page stays put underneath the doors the whole time. */
+.doors-close::view-transition-old(root),
+.doors-open::view-transition-new(root),
+.doors-close::view-transition-group(door-left),
+.doors-close::view-transition-group(door-right),
+.doors-open::view-transition-group(door-left),
+.doors-open::view-transition-group(door-right) {
+  animation: none;
+}
+
+.doors-close::view-transition-new(root),
+.doors-open::view-transition-old(root) {
+  display: none;
+}
+
+.doors-close::view-transition-new(door-left),
+.doors-close::view-transition-new(door-right),
+.doors-open::view-transition-old(door-left),
+.doors-open::view-transition-old(door-right) {
+  animation: 420ms cubic-bezier(0.65, 0, 0.2, 1) both;
+  mix-blend-mode: normal;
+}
+
+.doors-close::view-transition-new(door-left) {
+  animation-name: slide-in-back; /* from the left */
+}
+
+.doors-close::view-transition-new(door-right) {
+  animation-name: slide-in; /* from the right */
+}
+
+.doors-open::view-transition-old(door-left) {
+  animation-name: slide-out; /* to the left */
+}
+
+.doors-open::view-transition-old(door-right) {
+  animation-name: slide-out-back; /* to the right */
+}
+
+/* Morph: joining a room drops the join page's code field and button down into the board's
+   writing box (and the wordmark goes back up). The rest of the page cross-fades. */
+.morph .page-join .field > .input,
+.morph .bar .bar-field > .input {
+  view-transition-name: compose-input;
+}
+
+.morph .page-join .field > .button,
+.morph .bar .bar-field > .button {
+  view-transition-name: compose-button;
+}
+
+.morph::view-transition-group(*),
+.morph::view-transition-old(*),
+.morph::view-transition-new(*) {
+  animation-duration: 450ms;
+  animation-timing-function: cubic-bezier(0.65, 0, 0.2, 1);
+}
+
+/* The line above the board's field rides along with it; app.js animates it, since the
+   distance depends on where the field is on both pages. */
+.morph .bar .bar-row {
+  view-transition-name: compose-label;
+}
+
+.morph::view-transition-old(compose-label),
+.morph::view-transition-new(compose-label) {
+  animation: none;
+}
+
+@keyframes slide-out {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes slide-out-back {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes slide-in-back {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
 /* ---- Projector view ----
-   Read from the back of a lecture hall: one huge code, everything else small and out of
-   the way. */
+   At the top: read from the back of a lecture hall, one huge code, everything else small and
+   out of the way. Scrolled down: the same pieces squeezed into a banner (host.js scrollMorph)
+   over the board. */
 
 .projector {
-  min-height: 100vh;
+  --column: 42rem; /* the board's width, as on the student page */
+  max-width: 120rem; /* like .page-host, so the wordmark stays put between the two */
+  margin: 0 auto;
+  padding: 0 var(--gutter) var(--gutter);
+}
+
+/* The banner. Sticky from the very top, so the wordmark sits where it does on other pages. */
+.proj-head {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  margin: 0 calc(-1 * var(--gutter));
+  padding: var(--gutter) var(--gutter) 1.25rem;
+  background: var(--board);
+}
+
+.proj-stuck {
+  box-shadow: 0 2px 0 var(--ghost);
+}
+
+.proj-info {
+  margin-top: 1.25rem;
+}
+
+.proj-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.75rem;
+}
+
+.proj-topic {
+  font-size: clamp(var(--step-3), 4.5vw, 3.75rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.code.code-small {
+  font-size: var(--step-3);
+}
+
+.proj-status,
+.projector-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 1.25rem;
+  font-size: var(--step-1);
+}
+
+.joined {
+  color: var(--ink-soft);
+}
+
+/* As wide as its text, so it scales about the text's middle, not the banner's. */
+.proj-how {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 0.35rem;
+  font-size: var(--step-1);
+  color: var(--ink-soft);
+}
+
+.proj-how strong {
+  color: var(--ink);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+/* The pieces that morph: scaled about their middles. */
+.proj-topic,
+.code-small,
+.proj-how,
+.proj-status,
+.projector-topic,
+.proj-hero .code,
+.projector-how,
+.projector-status {
+  transform-origin: center;
+}
+
+/* The full-screen view, inside the banner so it stays put while the page scrolls. */
+.proj-hero {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  height: 100svh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  padding: var(--gutter);
-  gap: 1rem;
+  grid-template-rows: 1fr auto;
+  padding: calc(var(--gutter) + 3rem) var(--gutter) var(--gutter);
+  pointer-events: none;
+}
+
+/* "Go to … and type this code" with the status right under it. */
+.projector-join {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.proj-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-size: clamp(var(--step-0), 2vw, var(--step-1)); /* one line, even on a phone */
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.proj-hint .icon-arrow {
+  width: 1em;
+  height: 1em;
+  transform: rotate(90deg);
+}
+
+.projector .board-list {
+  margin-top: 2rem;
 }
 
 .projector-bar {
@@ -348,6 +822,11 @@ ol {
 .projector-bar .actions {
   display: flex;
   gap: 0.5rem;
+}
+
+/* Taller than the wordmark: don't let them push the wordmark down. */
+.projector-bar .button {
+  margin-block: -0.5rem;
 }
 
 .projector-main {
@@ -427,21 +906,13 @@ ol {
   }
 }
 
+/* Wait for the page swipe to finish before drawing the stroke. */
+.slid-in .code::before {
+  animation-delay: 450ms;
+}
+
 .projector-closed .code::before {
   background: var(--ghost);
-}
-
-.projector-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem 2rem;
-  font-size: var(--step-1);
-  color: var(--ink-soft);
-}
-
-.projector-foot .status {
-  font-size: var(--step-1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -462,32 +933,7 @@ ol {
 /* ---- Join code entry ---- */
 
 .input-code {
-  flex: 0 1 12rem;
-  font-size: var(--step-2);
-  font-weight: 800;
-  letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.input-code::placeholder {
-  letter-spacing: normal;
-}
-
-/* ---- Board (student view) ----
-   Ideas are rows of marker text with a vote box on the left, ruled off like lines on the
-   board. No cards. */
-
-.page-board .masthead {
-  align-items: center;
-  padding-bottom: 1.5rem;
-}
-
-.refresh {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: var(--step--1);
-  color: var(--ink-soft);
 }
 
 /* Live connection: a green dot while updates flow, hollow while it reconnects. */
@@ -520,72 +966,215 @@ ol {
   background: var(--green);
 }
 
-.board-topic {
-  overflow-wrap: anywhere;
+/* ---- Board (student view) ----
+   Topic, code and status across the top, the ideas in a column down the middle, and the box
+   for writing pinned to the bottom of the screen. Ideas are rows of marker text with a vote
+   box on the left, ruled off like lines on the board. No cards. */
+
+.page-board {
+  --column: 42rem;
+  display: flex;
+  flex-direction: column;
+  max-width: 120rem;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: var(--gutter) var(--gutter) 0;
 }
 
-.board-head .room-meta {
-  margin-top: 0.5rem;
-  font-size: var(--step-0);
+/* The wordmark in the same place as on the other full-screen pages. */
+.page-board .masthead {
+  align-items: center;
+  padding-bottom: 0;
 }
 
-.board-head strong {
-  color: var(--ink);
+.refresh {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
 }
 
-.banner {
-  margin-top: 1.25rem;
-  padding: 0.75rem 1rem;
-  border-left: 4px solid var(--ink-soft);
-  background: var(--paper);
-  border-radius: 0 0.5rem 0.5rem 0;
+/* Taller than the wordmark: don't let it push the wordmark down. */
+.refresh .button {
+  margin-block: -0.5rem;
 }
 
-.write,
-.page-board .section {
+.board-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.75rem;
   margin-top: 2.5rem;
 }
 
-.write:empty {
-  display: none;
+.page-board .board-topic {
+  font-size: clamp(var(--step-3), 4.5vw, 3.75rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
 }
 
-.compose,
-.comment-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+/* The join code with a highlighter stroke, like the projector's. */
+.board-code {
+  position: relative;
+  isolation: isolate;
+  padding: 0 0.2em;
+  font-size: var(--step-2);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
-.compose label,
-.comment-form label {
-  font-weight: 600;
+.board-code::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  top: 40%;
+  bottom: 0;
+  background: var(--highlighter);
+  border-radius: 0.08em 0.14em 0.1em 0.06em;
+  transform: rotate(-1.5deg);
 }
 
-.textarea {
-  flex: none;
-  width: 100%;
-  font-size: var(--step-0);
-  line-height: 1.45;
-  resize: vertical;
+.board-closed .board-code::before {
+  background: var(--ghost);
 }
 
-.compose .textarea {
+.board-head .status {
   font-size: var(--step-1);
 }
 
-.compose-foot {
+.board-list {
+  width: 100%;
+  max-width: var(--column);
+  margin: 3rem auto 0;
+  padding-bottom: 2rem;
+}
+
+.list-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
 }
 
+/* The writing box, stuck to the bottom of the screen. On a short board margin-top: auto
+   pushes it down there; on a long one the ideas scroll under it and fade out above it. */
+.bar {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  margin: auto calc(-1 * var(--gutter)) 0;
+  /* The bottom padding is where an error line hangs (see .bar .alert). */
+  padding: 1.75rem var(--gutter) max(var(--gutter), 2.25rem);
+  background: linear-gradient(to bottom, transparent, var(--board) 1.5rem);
+}
+
+.bar > * {
+  max-width: var(--column);
+  margin-inline: auto;
+}
+
+.bar .banner {
+  margin-top: 0;
+}
+
+.bar-form {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  padding-inline: 0.25rem;
+}
+
+.bar-who,
+.bar-label {
+  font-weight: 800;
+}
+
+.bar-row .counter {
+  margin-left: auto;
+}
+
+/* A field and its button. --line is the text size; the button matches a one-line field and
+   stays at the bottom as the field grows. */
+.bar-field {
+  --line: var(--step-1);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.bar-field > .input {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--line);
+}
+
+.bar-field > .button {
+  flex: none;
+  height: calc(var(--line) * 1.5 + 1.2rem + 4px);
+  min-height: 0;
+}
+
+.button-send {
+  width: 4rem;
+  padding: 0;
+}
+
+.icon-up {
+  transform: rotate(-90deg);
+}
+
+/* Errors in the bar and under comments: a red line, like the other pages' fields. */
+.bar .alert,
+.comment-form .alert {
+  margin-top: 0.1rem;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* The bar sits on the bottom of the screen, so an error taking up space would push the field
+   up. It hangs below the field instead, in the bar's bottom padding. */
+.bar .alert {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.3rem;
+  font-size: var(--step--1);
+}
+
+.textarea {
+  line-height: 1.5;
+  resize: none;
+  field-sizing: content;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
 .counter {
-  margin-right: auto;
   font-size: var(--step--1);
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
+}
+
+.counter:empty {
+  display: none;
 }
 
 .counter-low {
@@ -600,18 +1189,33 @@ ol {
   color: var(--blue);
   background: none;
   border: 0;
-  padding: 0.5rem 0.25rem;
+  padding: 0.25rem;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
 
-.list-bar {
+.banner {
+  margin-top: 1.25rem;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid var(--ink-soft);
+  background: var(--paper);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.comment-form {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+.comment-form .bar-field {
+  --line: var(--step-0);
+}
+
+.comment-form .counter {
+  padding-inline: 0.25rem;
 }
 
 /* Two-way sort switch: radio buttons drawn as one segmented control. */
@@ -802,9 +1406,23 @@ ol {
     font-size: var(--step-0);
   }
 
-  .idea-body,
-  .compose .textarea {
+  .idea-body {
     font-size: var(--step-0);
   }
 
+  .bar-field {
+    --line: var(--step-0);
+  }
+
+  .button-send {
+    width: 3.25rem;
+  }
+
+  .board-head {
+    margin-top: 1.5rem;
+  }
+
+  .board-list {
+    margin-top: 2rem;
+  }
 }
