@@ -168,3 +168,11 @@ def test_live_times_posts_and_votes_reaching_a_socket(table, dynamodb, results):
     assert [(r["op"], r["ok"]) for r in live_rows] == [("post_idea", "True"), ("vote", "True")] * 2
     assert all(float(r["event_ms"]) >= float(r["http_ms"]) for r in live_rows)
     assert json.loads(out["run"].read_text())["target"] == "local"
+
+
+def test_cloudwatch_refuses_a_local_run(results):
+    benchmark.result_paths("local-run")["run"].write_text(
+        json.dumps({"target": "local", "table": "bench-x"})
+    )
+    with pytest.raises(ValueError, match="isn't a 'run' on AWS"):
+        benchmark.cloudwatch("local-run")

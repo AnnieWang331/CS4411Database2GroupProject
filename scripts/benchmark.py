@@ -4,6 +4,7 @@ Usage (global options such as --results go before the command):
   python scripts/benchmark.py run [--scenarios LIST] [--students 30,100,300] [--provisioned]
          [--endpoint-url URL] [--keep-table]
   python scripts/benchmark.py live [--api-url URL] [--ws-url URL] [--samples 50]
+  python scripts/benchmark.py cloudwatch RUN_ID    (AWS runs: DynamoDB's own metrics for the run)
 
 ``run`` creates its own table (``bench-<RUN_ID>``, on-demand unless ``--provisioned``), so it
 never touches the demo table, and deletes it afterwards unless ``--keep-table``. Every student is
@@ -47,7 +48,7 @@ import time
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode, urlsplit
@@ -681,6 +682,7 @@ def result_paths(run_id: str) -> dict[str, Path]:
             ("checks", "csv"),
             ("live", "csv"),
             ("live-summary", "csv"),
+            ("cloudwatch", "csv"),
         ]
     }
 
@@ -941,6 +943,94 @@ def summarize_live(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return summary
 
 
+CLOUDWATCH_FIELDS = ["metric", "operation", "stat", "timestamp", "value"]
+# Per-table metrics, summed per minute.
+TABLE_METRICS = [
+    "ConsumedWriteCapacityUnits",
+    "ConsumedReadCapacityUnits",
+    "WriteThrottleEvents",
+    "ReadThrottleEvents",
+    "TransactionConflict",
+    "ConditionalCheckFailedRequests",
+]
+OPERATIONS = ["TransactWriteItems", "GetItem", "Query", "Scan", "BatchWriteItem"]
+
+
+def cloudwatch(run_id: str) -> list[dict[str, Any]]:
+    """Fetch the run's table metrics from CloudWatch (AWS runs only) and save them as CSV.
+
+    CloudWatch reports the server side: throttles and conflicts DynamoDB counted, and request
+    latency without the network. Metrics show up a few minutes after the run and stay for 15 days,
+    also after the benchmark has deleted its table.
+    """
+    out = result_paths(run_id)
+    meta = json.loads(out["run"].read_text())
+    if meta.get("target") != "aws" or "table" not in meta:
+        raise ValueError(f"run {run_id} isn't a 'run' on AWS; CloudWatch has nothing for it")
+    start = datetime.fromisoformat(meta["started_at"]) - timedelta(minutes=1)
+    end = datetime.fromisoformat(meta["finished_at"]) + timedelta(minutes=2)
+    table = {"Name": "TableName", "Value": meta["table"]}
+
+    queries: list[tuple[str, str, str, list[dict[str, str]]]] = [
+        (metric, "", "Sum", [table]) for metric in TABLE_METRICS
+    ]
+    for op in OPERATIONS:
+        dims = [table, {"Name": "Operation", "Value": op}]
+        queries += [
+            ("ThrottledRequests", op, "Sum", dims),
+            ("SuccessfulRequestLatency", op, "Average", dims),
+            ("SuccessfulRequestLatency", op, "Maximum", dims),
+            ("SuccessfulRequestLatency", op, "SampleCount", dims),
+        ]
+    client = boto3.client("cloudwatch", region_name=meta["region"])
+    response = client.get_metric_data(
+        MetricDataQueries=[
+            {
+                "Id": f"q{i}",
+                "MetricStat": {
+                    "Metric": {"Namespace": "AWS/DynamoDB", "MetricName": m, "Dimensions": d},
+                    "Period": 60,
+                    "Stat": stat,
+                },
+            }
+            for i, (m, _, stat, d) in enumerate(queries)
+        ],
+        StartTime=start,
+        EndTime=end,
+        ScanBy="TimestampAscending",
+    )
+    rows = []
+    for result in response["MetricDataResults"]:
+        metric, op, stat, _ = queries[int(result["Id"][1:])]
+        for ts, value in zip(result["Timestamps"], result["Values"], strict=True):
+            rows.append(
+                {
+                    "metric": metric,
+                    "operation": op,
+                    "stat": stat,
+                    "timestamp": ts.astimezone(UTC).isoformat(timespec="seconds"),
+                    "value": round(value, 3),
+                }
+            )
+    write_csv(out["cloudwatch"], CLOUDWATCH_FIELDS, rows)
+    return rows
+
+
+def print_cloudwatch(rows: list[dict[str, Any]]) -> None:
+    totals: dict[tuple[str, str, str], float] = {}
+    for r in rows:
+        key = (r["metric"], r["operation"], r["stat"])
+        if r["stat"] == "Maximum":
+            totals[key] = max(totals.get(key, 0.0), r["value"])
+        elif r["stat"] != "Average":
+            totals[key] = totals.get(key, 0.0) + r["value"]
+    if not totals:
+        print("No datapoints yet: CloudWatch can take a few minutes; try again shortly.")
+    for (metric, op, stat), value in sorted(totals.items()):
+        label = "max" if stat == "Maximum" else "count" if stat == "SampleCount" else "total"
+        print(f"{metric:<32}{op:<20}{label:<7}{value:>12.1f}")
+
+
 def print_live_summary(run_id: str) -> None:
     out = result_paths(run_id)
     with out["live-summary"].open(newline="") as f:
@@ -1018,6 +1108,9 @@ def main() -> int:
     live_cmd.add_argument("--samples", type=int, default=50)
     live_cmd.add_argument("--interval", type=float, default=0.25, help="seconds between samples")
 
+    cw_cmd = commands.add_parser("cloudwatch", help="fetch an AWS run's CloudWatch metrics")
+    cw_cmd.add_argument("run_id")
+
     args = parser.parse_args()
     RESULTS = args.results
     try:
@@ -1038,7 +1131,9 @@ def main() -> int:
         elif args.command == "live":
             run_id = live(args.api_url, args.ws_url, args.samples, args.interval)
             print_live_summary(run_id)
-    except (BotoCoreError, ClientError, OSError) as err:
+        elif args.command == "cloudwatch":
+            print_cloudwatch(cloudwatch(args.run_id))
+    except (BotoCoreError, ClientError, OSError, ValueError) as err:
         print(f"Benchmark failed: {err}", file=sys.stderr)
         return 1
     return 0
