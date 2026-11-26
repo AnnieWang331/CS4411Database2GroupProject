@@ -190,8 +190,8 @@ to change it if you used `--port` or `--ws-port`.
 
 ### 8. Run the benchmark
 
-`scripts/benchmark.py` plays a class: every student is a thread, and they join, post, vote and
-comment at the same moment, one phase at a time. It makes its own table (`bench-<run id>`), so
+`scripts/benchmark.py` plays a class: every student joins, posts, votes and comments at the
+same moment, one phase at a time. It makes its own table (`bench-<run id>`), so
 your demo data isn't touched, and deletes it afterwards (`--keep-table` keeps it):
 
 ```sh
