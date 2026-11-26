@@ -61,8 +61,12 @@ from AWS that runs on your machine. You don't need an AWS account for any of the
 
 ### 1. Install the Python packages
 
+Clone the repository, or unzip the submitted archive, and run every command below from its top
+folder (the one with this README). Nothing needs git.
+
 Make a virtual environment and turn it on. For example, run `python -m venv .venv` and then
-`source .venv/bin/activate` (a pyenv virtualenv works too). Then install the packages:
+`source .venv/bin/activate` (on Windows, `.venv\Scripts\activate`; a pyenv virtualenv works
+too). Then install the packages:
 
 ```sh
 pip install -r requirements-dev.txt
@@ -81,6 +85,9 @@ docker run -d --rm --name dynamodb-local -p 8000:8000 amazon/dynamodb-local \
 If you use Podman, change `docker` to `podman` and use `docker.io/amazon/dynamodb-local` as the
 image name. Because of `-inMemory`, all the data disappears when the container stops, which is
 handy for testing. To stop it, run `docker stop dynamodb-local`.
+
+If something else already uses port 8000, use `-p 8001:8000` instead and `http://localhost:8001`
+wherever this README says `http://localhost:8000`.
 
 ### 3. Create the table and add demo data
 
@@ -107,11 +114,14 @@ so you can see it worked.
 ### 4. Run the tests
 
 ```sh
-pytest
+REQUIRE_DYNAMODB_LOCAL=1 pytest
 ```
 
-The tests make their own tables in DynamoDB Local and delete them afterwards. If DynamoDB Local
-isn't running, the tests that need it are skipped instead of failing.
+The tests make their own tables in DynamoDB Local and delete them afterwards. They use
+`DYNAMODB_ENDPOINT_URL` from step 3 (`http://localhost:8000` if it isn't set). With
+`REQUIRE_DYNAMODB_LOCAL=1`, a test that can't reach DynamoDB Local fails. Without it, those
+tests are skipped, so a run with only skips doesn't mean the tests passed. Every test should
+pass, with none skipped.
 
 Lint: run `ruff format --check .`, `ruff check .` and `cfn-lint template.yaml` before you push.
 The ruff settings (like our 100-character line length) are in `pyproject.toml`.
@@ -218,8 +228,17 @@ ideas and votes over HTTP and times when the message reaches a WebSocket:
 python scripts/benchmark.py live
 ```
 
-`python scripts/bench_charts.py --run <run id> [--live-run <run id>]` draws the charts for the
-report into `benchmarks/charts/`.
+`scripts/bench_charts.py` draws the report's charts from saved CSVs. It needs no database, so
+this redraws the charts in `benchmarks/charts/` from our AWS runs, without an AWS account:
+
+```sh
+python scripts/bench_charts.py --run 20261126T024200Z --provisioned-run 20261126T024530Z \
+  --live-run 20261126T024546Z
+```
+
+For your own run, add `--out` so the report's charts aren't overwritten:
+`python scripts/bench_charts.py --run <run id> [--live-run <run id>] --out my-charts`. A run
+without the `query-vs-scan` scenario skips that chart.
 
 The students are split over one process per CPU (threads inside each), because one Python
 process can't send more than about 100-150 requests a second. `--processes N` changes that; the
@@ -228,7 +247,7 @@ process can't send more than about 100-150 requests a second. `--processes N` ch
 DynamoDB Local is one Java process with no partitions, throttling or network, so its numbers
 only show that the code works under load. The numbers in our report come from AWS (see below).
 Local also gets slower after several runs (each one creates and deletes a table); restart it
-(`podman restart dynamodb-local`, then `create_table.py` and `seed.py` again) before a run.
+(`docker restart dynamodb-local`, then `create_table.py` and `seed.py` again) before a run.
 
 ### 9. Run the relational baseline
 
@@ -254,6 +273,25 @@ It prints `ok: ...` for each rule the database rejected, `all checks passed`, an
 functions yourself, open `docker exec -it brainstorm-postgres psql -U postgres` and run
 `SET search_path = brainstorm;` first. [docs/relational.md](docs/relational.md) compares the two
 designs. `docker stop brainstorm-postgres` removes the container.
+
+### Data
+
+There is no external dataset. All the data is made by our scripts:
+
+- **Demo board**: `scripts/seed.py` writes it. The topic, students, ideas, votes and comments are
+  written out in the script, so every run makes the same board (only the room id and join code
+  are new each time). `sql/demo.sql` makes the same board in PostgreSQL.
+- **Benchmark results**: `benchmarks/results/bench-<run id>-*.csv` (plus a `-run.json` with the
+  settings, Python and boto3 versions). The report's numbers come from three runs against AWS
+  in ca-central-1: `20261126T024200Z` (`benchmark.py run`, on-demand), `20261126T024530Z`
+  (`run --provisioned`) and `20261126T024546Z` (`live`). The students' actions are random with
+  a fixed seed (`--seed`, 4411 by default), so a rerun sends the same requests, but its timings
+  will differ. [docs/benchmark.md](docs/benchmark.md) explains how we measured and what we
+  found.
+  Your own runs are saved in the same folder under a new run id.
+- **Charts**: `benchmarks/charts/*.png`, drawn from those three runs by `bench_charts.py` (step 8).
+- **TTL results**: `benchmarks/results/ttl-20261124T213237Z-*`, from `scripts/ttl_demo.py` on
+  AWS (see "Show TTL deleting rooms" below).
 
 ### Settings
 
@@ -354,14 +392,14 @@ The template creates:
 
 ### What you need
 
-- An AWS account and a profile that can create these resources (we use one called `cs4411`)
+- An AWS account and a profile that can create these resources
 - The [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
   (`pip install aws-sam-cli` works too) and the AWS CLI
 
 ### Deploy
 
 ```sh
-export AWS_PROFILE=cs4411
+export AWS_PROFILE=<your-profile>
 sam build
 sam deploy --parameter-overrides BudgetEmail=you@example.com
 ```
@@ -437,7 +475,7 @@ otherwise it talks to DynamoDB Local:
 
 ```sh
 unset DYNAMODB_ENDPOINT_URL
-AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/seed.py
+AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1 python scripts/seed.py
 ```
 
 ### Show TTL deleting rooms
@@ -446,7 +484,7 @@ TTL removes a room some time after its `expires_at`, so seeing it takes two step
 makes a few rooms that expire in 5 minutes and saves their items to `benchmarks/results/`:
 
 ```sh
-AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/ttl_demo.py start
+AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1 python scripts/ttl_demo.py start
 ```
 
 Then run `check` with the run id it printed, as often as you like. It records which items are
@@ -455,7 +493,7 @@ it), and checks that the API already hides the rooms (`404`) before TTL deletes 
 only keeps records for 24 hours, so check at least twice a day until everything is gone:
 
 ```sh
-AWS_PROFILE=cs4411 AWS_REGION=ca-central-1 python scripts/ttl_demo.py check <run id> --api-url <ApiUrl>
+AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1 python scripts/ttl_demo.py check <run id> --api-url <ApiUrl>
 ```
 
 In our run (`benchmarks/results/ttl-20261124T213237Z-*`) TTL deleted all 27 items 11 to 17
@@ -475,7 +513,7 @@ deployed APIs (Streams, Lambda and API Gateway), using the `ApiUrl` and `WebSock
 
 ```sh
 unset DYNAMODB_ENDPOINT_URL
-export AWS_PROFILE=cs4411 AWS_REGION=ca-central-1
+export AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1
 python scripts/benchmark.py run
 python scripts/benchmark.py run --provisioned --scenarios hot-room --students 30,100
 python scripts/benchmark.py live --api-url <ApiUrl> --ws-url <WebSocketUrl>
@@ -507,6 +545,3 @@ sam delete
 | Alexander King Perocho | Alex           | [@perochoa](https://github.com/perochoa)         |
 | Sachin Singh           | Sachin         |                                                  |
 | Muhammad Haadi Khawaja | Muhammad       | [@mkhawa5](https://github.com/mkhawa5)           |
-
-Our Group Excel Sheet: \
-<https://docs.google.com/spreadsheets/d/1D12NDc1bbNykrmjbw6rxI_1_SfABOOpvLZ4hAwmwTV8/edit?pli=1&gid=0#gid=0>

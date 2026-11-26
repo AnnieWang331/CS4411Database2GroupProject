@@ -172,9 +172,12 @@ def conflicts(run_id: str, out: Path) -> Path:
     return save(fig, "conflicts", out)
 
 
-def query_vs_scan(run_id: str, out: Path) -> Path:
+def query_vs_scan(run_id: str, out: Path) -> Path | None:
     rows = {r["op"]: r for r in read(run_id, "summary") if r["scenario"] == "query-vs-scan"}
     ops = [("board_query", "Query (one partition)"), ("board_scan", "Scan + filter")]
+    if not all(op in rows for op, _ in ops):
+        print(f"skipped query-vs-scan: run {run_id} has no query-vs-scan scenario")
+        return None
     fig, axes = plt.subplots(1, 2, figsize=(8, 2.6))
     for ax, field, title in [
         (axes[0], "p50_ms", "Median latency (ms)"),
