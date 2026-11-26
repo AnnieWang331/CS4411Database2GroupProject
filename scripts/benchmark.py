@@ -8,7 +8,9 @@ Usage (global options such as --results go before the command):
 
 ``run`` creates its own table (``bench-<RUN_ID>``, on-demand unless ``--provisioned``), so it
 never touches the demo table, and deletes it afterwards unless ``--keep-table``. Every student is
-a thread with its own boto3 client. Each operation calls the same data-layer function the API
+a thread with its own boto3 client, and the threads are split over one process per CPU
+(``--processes``), because one Python process can't drive more than about 100-150 calls a second.
+Each operation calls the same data-layer function the API
 does, and botocore event hooks count, per operation, the HTTP attempts, transaction conflicts,
 throttles and consumed capacity (``ReturnConsumedCapacity=TOTAL`` is added to every request).
 
@@ -38,8 +40,10 @@ the code behaves, and hot-partition and capacity results must come from AWS.
 import argparse
 import csv
 import json
+import multiprocessing
 import os
 import platform
+import queue
 import random
 import statistics
 import sys
@@ -47,7 +51,7 @@ import threading
 import time
 from collections.abc import Callable
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -104,7 +108,20 @@ OP_FIELDS = [
     "capacity_units",
     "items_read",
 ]
-PHASE_FIELDS = ["scenario", "students", "phase", "wall_s", "ops", "ok", "ops_per_s", "client_cpu"]
+PHASE_FIELDS = [
+    "scenario",
+    "students",
+    "phase",
+    "wall_s",
+    "ops",
+    "ok",
+    "ops_per_s",
+    "processes",
+    "client_cpu",
+    "client_cpu_max",
+]
+# Longest a phase may take (a provisioned table under heavy throttling is slow).
+BARRIER_TIMEOUT_S = 1800
 SUMMARY_FIELDS = [
     "scenario",
     "students",
@@ -217,7 +234,7 @@ def error_name(err: Exception) -> str:
 class Recorder:
     """Collects ``OpResult`` rows from all worker threads."""
 
-    def __init__(self) -> None:
+    def __init__(self, origin: float | None = None) -> None:
         self.rows: list[OpResult] = []
         self.phases: list[dict[str, Any]] = []
         self.checks: list[dict[str, Any]] = []
@@ -225,7 +242,8 @@ class Recorder:
         self.scenario = ""
         self.students = 0
         self.phase = ""
-        self.origin = time.perf_counter()
+        # perf_counter is system-wide on Linux, so worker processes share the parent's origin.
+        self.origin = time.perf_counter() if origin is None else origin
 
     def measure(self, op: str, fn: Callable[..., Any], *args: Any) -> Any:
         """Run ``fn(*args)``, record its latency and cost, and return its result (None on error)."""
@@ -260,35 +278,28 @@ class Recorder:
         return result
 
 
-class Workers:
-    """One boto3 resource (and so one client and connection pool) per simulated student.
+def make_tables(endpoint: str | None, table_name: str, n: int) -> list[Any]:
+    """One instrumented boto3 resource (own client and connection pool) per simulated student.
 
     boto3 resources aren't thread-safe, so each thread gets its own; they're created one at a
     time because creating them from one session isn't thread-safe either.
     """
-
-    def __init__(self, endpoint: str | None, table_name: str) -> None:
-        self.endpoint = endpoint
-        self.table_name = table_name
-        self.tables: list[Any] = []
-
-    def ensure(self, n: int) -> None:
-        new = []
-        while len(self.tables) < n:
-            resource = db.resource(self.endpoint)
-            instrument(resource.meta.client)
-            table = resource.Table(self.table_name)
-            self.tables.append(table)
-            new.append(table)
-        # Open each connection before measuring, so no operation pays for the TLS handshake.
-        run_parallel([lambda t=t: t.get_item(Key={"PK": "WARMUP", "SK": "WARMUP"}) for t in new])
+    tables = []
+    for _ in range(n):
+        resource = db.resource(endpoint)
+        instrument(resource.meta.client)
+        tables.append(resource.Table(table_name))
+    # Open each connection before measuring, so no operation pays for the TLS handshake.
+    run_parallel([lambda t=t: t.get_item(Key={"PK": "WARMUP", "SK": "WARMUP"}) for t in tables])
+    return tables
 
 
-def run_parallel(tasks: list[Callable[[], Any]], barrier: bool = False) -> None:
-    """Run each task on its own thread and wait for all; with ``barrier`` they start together."""
-    if not tasks:
-        return
-    gate = threading.Barrier(len(tasks)) if barrier else None
+def run_parallel(tasks: list[Callable[[], Any]], gate: threading.Barrier | None = None) -> None:
+    """Run each task on its own thread and wait for all of them.
+
+    With ``gate`` (a barrier for ``len(tasks) + 1`` parties) the tasks wait until the caller
+    also reaches the barrier, so they all start at the same moment.
+    """
     errors: list[BaseException] = []
 
     def wrap(task: Callable[[], Any]) -> None:
@@ -302,49 +313,15 @@ def run_parallel(tasks: list[Callable[[], Any]], barrier: bool = False) -> None:
     threads = [threading.Thread(target=wrap, args=(t,)) for t in tasks]
     for thread in threads:
         thread.start()
+    if gate:
+        gate.wait()
     for thread in threads:
         thread.join()
     if errors:
         raise errors[0]
 
 
-def phase(rec: Recorder, name: str, tasks: list[Callable[[], Any]]) -> None:
-    """Run one phase: every task starts at once; records wall time and client CPU use."""
-    rec.phase = name
-    before = len(rec.rows)
-    cpu0, wall0 = time.process_time(), time.perf_counter()
-    run_parallel(tasks, barrier=True)
-    wall = time.perf_counter() - wall0
-    cpu = time.process_time() - cpu0
-    rows = rec.rows[before:]
-    ok = sum(r.ok for r in rows)
-    rec.phases.append(
-        {
-            "scenario": rec.scenario,
-            "students": rec.students,
-            "phase": name,
-            "wall_s": round(wall, 3),
-            "ops": len(rows),
-            "ok": ok,
-            "ops_per_s": round(ok / wall, 1) if wall else 0,
-            # Cores' worth of CPU this process used. Near 1.0 means the client (Python's GIL),
-            # not DynamoDB, may be what limits throughput, so read latencies with care.
-            "client_cpu": round(cpu / wall, 2) if wall else 0,
-        }
-    )
-
-
 # --- Scenario building blocks ------------------------------------------------------------------
-
-
-@dataclass
-class Student:
-    index: int
-    user_id: str
-    name: str
-    room: dict[str, Any]
-    rng: random.Random
-    posted: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -354,6 +331,29 @@ class Load:
     posts: int = 2
     votes: int = 5
     comments: int = 1
+
+
+@dataclass
+class Plan:
+    """One scenario's class: the rooms, the phases, and what each student does in them."""
+
+    scenario: str
+    students: int
+    rooms: list[dict[str, Any]]
+    phases: list[str]
+    load: Load
+    seed: int
+    no_room_check: bool = False
+    hot_idea_sk: str | None = None
+
+
+@dataclass
+class Target:
+    """Where the load goes and how it is generated."""
+
+    endpoint: str | None
+    table_name: str
+    processes: int
 
 
 def vote_without_room_check(table, room_id: str, user_id: str, idea_sk: str) -> None:
@@ -390,134 +390,232 @@ def vote_without_room_check(table, room_id: str, user_id: str, idea_sk: str) -> 
     )
 
 
-def make_rooms(rec: Recorder, workers: Workers, n_rooms: int, label: str) -> list[dict[str, Any]]:
-    """Create ``n_rooms`` rooms in parallel (the 'setup' phase) and return their META items."""
-    workers.ensure(n_rooms)
-    made: list[dict[str, Any] | None] = [None] * n_rooms
+def act(
+    rec: "Recorder",
+    plan: Plan,
+    phase: str,
+    i: int,
+    table,
+    rng: random.Random,
+    pools: dict[str, list[str]],
+) -> None:
+    """What student ``i`` does in one phase."""
+    room_id, code = (
+        plan.rooms[i % len(plan.rooms)]["room_id"],
+        plan.rooms[i % len(plan.rooms)]["code"],
+    )
+    user, name = f"stu-{plan.scenario}-{plan.students}-{i}", f"Student {i}"
+    if phase == "join":
+        rec.measure("resolve_code", rooms.resolve_code, table, code)
+        rec.measure("join_room", rooms.join_room, table, room_id, user, name)
+        rec.measure("load_board", ideas.load_board, table, room_id, True)
+    elif phase == "post":
+        for n in range(plan.load.posts):
+            body = f"Idea {n} from student {i}"
+            rec.measure("post_idea", ideas.post_idea, table, room_id, user, name, body)
+    elif phase == "vote":
+        if plan.hot_idea_sk:
+            targets = [plan.hot_idea_sk]
+        else:
+            pool = pools[room_id]
+            targets = rng.sample(pool, min(plan.load.votes, len(pool)))
+        vote = vote_without_room_check if plan.no_room_check else ideas.vote
+        for idea_sk in targets:
+            rec.measure("vote", vote, table, room_id, user, idea_sk)
+    elif phase == "comment":
+        for n in range(plan.load.comments):
+            body = f"Comment {n} from student {i}"
+            idea_sk = rng.choice(pools[room_id])
+            rec.measure("comment", ideas.add_comment, table, room_id, idea_sk, user, name, body)
+    elif phase == "reload":
+        rec.measure("load_board", ideas.load_board, table, room_id, True)
+    else:
+        raise ValueError(f"unknown phase {phase!r}")
 
-    def create(i: int) -> None:
-        made[i] = rec.measure(
-            "create_room", rooms.create_room, workers.tables[i], f"prof-{label}-{i}", "Benchmark"
+
+def idea_pools(table, room_list: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Each room's idea keys: what a student sees on the live board before voting."""
+    pools = {}
+    for room in room_list:
+        items = rooms.query_all(
+            table,
+            KeyConditionExpression=Key("PK").eq(keys.room_pk(room["room_id"]))
+            & Key("SK").begins_with("IDEA#"),
+            ConsistentRead=True,
+        )
+        pools[room["room_id"]] = [item["SK"] for item in items]
+    return pools
+
+
+def run_worker(
+    plan: Plan,
+    indexes: list[int],
+    target: Target,
+    origin: float,
+    start,
+    end,
+    results,
+    in_child: bool,
+) -> None:
+    """One load-generating process (or thread): its students run every phase of ``plan``.
+
+    Every phase begins when all workers and the coordinator reach ``start`` and ends at ``end``,
+    so the coordinator can time it. Rows and CPU use go back through ``results``.
+    """
+    try:
+        if in_child:
+            boto3.DEFAULT_SESSION = None  # don't share the parent's session after fork
+        rec = Recorder(origin)
+        rec.scenario, rec.students = plan.scenario, plan.students
+        tables = make_tables(target.endpoint, target.table_name, len(indexes))
+        rngs = [random.Random(plan.seed * 100_003 + i) for i in indexes]
+        pools: dict[str, list[str]] = {}
+        cpu: dict[str, float] = {}
+        for phase in plan.phases:
+            if phase in ("vote", "comment") and not plan.hot_idea_sk and not pools:
+                pools = idea_pools(tables[0], plan.rooms)  # not timed
+            rec.phase = phase
+            tasks = [
+                lambda i=i, t=t, r=r, ph=phase, pl=pools: act(rec, plan, ph, i, t, r, pl)
+                for i, t, r in zip(indexes, tables, rngs, strict=True)
+            ]
+            gate = threading.Barrier(len(tasks) + 1)
+            start.wait()
+            cpu0 = time.process_time()
+            run_parallel(tasks, gate)
+            cpu[phase] = time.process_time() - cpu0
+            end.wait()
+        results.put({"rows": [asdict(r) for r in rec.rows], "cpu": cpu, "error": None})
+    except BaseException as err:
+        start.abort()
+        end.abort()
+        results.put({"rows": [], "cpu": {}, "error": f"{type(err).__name__}: {err}"})
+
+
+def run_plan(rec: "Recorder", plan: Plan, target: Target) -> None:
+    """Run ``plan`` with its students split over ``target.processes`` worker processes.
+
+    One Python process can only drive about 100-150 DynamoDB calls a second (the GIL), which a
+    300-student class easily exceeds, so the class is split over processes (threads inside each).
+    ``client_cpu_max`` in the phases CSV shows whether any worker was still saturated.
+    """
+    n = max(1, min(target.processes, plan.students))
+    groups = [list(range(k, plan.students, n)) for k in range(n)]
+    use_fork = n > 1 and "fork" in multiprocessing.get_all_start_methods()
+    if use_fork:
+        ctx = multiprocessing.get_context("fork")
+        start, end = (
+            ctx.Barrier(n + 1, timeout=BARRIER_TIMEOUT_S),
+            ctx.Barrier(n + 1, timeout=BARRIER_TIMEOUT_S),
+        )
+        results: Any = ctx.Queue()
+        workers: list[Any] = [
+            ctx.Process(
+                target=run_worker,
+                args=(plan, g, target, rec.origin, start, end, results, True),
+            )
+            for g in groups
+        ]
+    else:
+        start = threading.Barrier(n + 1, timeout=BARRIER_TIMEOUT_S)
+        end = threading.Barrier(n + 1, timeout=BARRIER_TIMEOUT_S)
+        results = queue.Queue()
+        workers = [
+            threading.Thread(
+                target=run_worker,
+                args=(plan, g, target, rec.origin, start, end, results, False),
+            )
+            for g in groups
+        ]
+    for worker in workers:
+        worker.start()
+    walls: dict[str, float] = {}
+    try:
+        for phase in plan.phases:
+            start.wait()
+            t0 = time.perf_counter()
+            end.wait()
+            walls[phase] = time.perf_counter() - t0
+    except threading.BrokenBarrierError:
+        pass  # a worker failed; its error comes back below
+    outputs = [results.get(timeout=BARRIER_TIMEOUT_S) for _ in workers]
+    for worker in workers:
+        worker.join()
+    errors = [o["error"] for o in outputs if o["error"]]
+    if errors:
+        real = [e for e in errors if not e.startswith("BrokenBarrierError")]
+        raise RuntimeError(f"benchmark worker failed: {(real or errors)[0]}")
+
+    rows = [OpResult(**r) for o in outputs for r in o["rows"]]
+    rows.sort(key=lambda r: r.start_s)
+    rec.rows.extend(rows)
+    for phase in plan.phases:
+        wall = walls[phase]
+        mine = [r for r in rows if r.phase == phase]
+        ok = sum(r.ok for r in mine)
+        cpus = [o["cpu"].get(phase, 0.0) for o in outputs]
+        rec.phases.append(
+            {
+                "scenario": plan.scenario,
+                "students": plan.students,
+                "phase": phase,
+                "wall_s": round(wall, 3),
+                "ops": len(mine),
+                "ok": ok,
+                "ops_per_s": round(ok / wall, 1) if wall else 0,
+                "processes": n,
+                # Cores' worth of CPU all workers used, and the busiest worker's share of one
+                # core. Near 1.0 means that worker (Python's GIL), not DynamoDB, limited the
+                # phase, so its latencies include time spent waiting in the client.
+                "client_cpu": round(sum(cpus) / wall, 2) if wall else 0,
+                "client_cpu_max": round(max(cpus) / wall, 2) if wall else 0,
+            }
         )
 
-    phase(rec, "setup", [lambda i=i: create(i) for i in range(n_rooms)])
-    if any(room is None for room in made):
-        raise RuntimeError("could not create the benchmark rooms")
-    return made  # type: ignore[return-value]
 
-
-def make_students(rec: Recorder, room_list: list[dict[str, Any]], seed: int) -> list[Student]:
-    return [
-        Student(
-            index=i,
-            user_id=f"stu-{rec.scenario}-{rec.students}-{i}",
-            name=f"Student {i}",
-            room=room_list[i % len(room_list)],
-            rng=random.Random(seed * 100_003 + i),
-        )
-        for i in range(rec.students)
-    ]
-
-
-def join_phase(rec: Recorder, workers: Workers, students: list[Student]) -> None:
-    def join(s: Student) -> None:
-        table = workers.tables[s.index]
-        rec.measure("resolve_code", rooms.resolve_code, table, s.room["code"])
-        rec.measure("join_room", rooms.join_room, table, s.room["room_id"], s.user_id, s.name)
-        rec.measure("load_board", ideas.load_board, table, s.room["room_id"], True)
-
-    phase(rec, "join", [lambda s=s: join(s) for s in students])
+def make_rooms(rec: "Recorder", table, n_rooms: int) -> list[dict[str, Any]]:
+    """Create the scenario's rooms, one instructor each (phase 'setup', one after another)."""
+    rec.phase = "setup"
+    made = []
+    for i in range(n_rooms):
+        owner = f"prof-{rec.scenario}-{rec.students}-{i}"
+        room = rec.measure("create_room", rooms.create_room, table, owner, "Benchmark")
+        if room is None:
+            raise RuntimeError("could not create the benchmark rooms")
+        made.append(room)
+    return made
 
 
 def classroom(
-    rec: Recorder,
-    workers: Workers,
+    rec: "Recorder",
+    target: Target,
+    table,
     n_rooms: int,
     load: Load,
     seed: int,
-    vote_fn: Callable[..., None] = ideas.vote,
+    no_room_check: bool = False,
 ) -> None:
     """Join, post, vote, comment and reload, each phase started by all students together."""
-    workers.ensure(rec.students)
-    room_list = make_rooms(rec, workers, n_rooms, f"{rec.scenario}-{rec.students}")
-    students = make_students(rec, room_list, seed)
-    join_phase(rec, workers, students)
-
-    def post(s: Student) -> None:
-        for n in range(load.posts):
-            idea = rec.measure(
-                "post_idea",
-                ideas.post_idea,
-                workers.tables[s.index],
-                s.room["room_id"],
-                s.user_id,
-                s.name,
-                f"Idea {n} from student {s.index}",
-            )
-            if idea:
-                s.posted.append(idea)
-
-    phase(rec, "post", [lambda s=s: post(s) for s in students])
-
-    # Everyone sees the ideas of their own room (from the live board), and votes on some.
-    by_room: dict[str, list[str]] = {}
-    for s in students:
-        by_room.setdefault(s.room["room_id"], []).extend(i["SK"] for i in s.posted)
-
-    def vote(s: Student) -> None:
-        pool = by_room[s.room["room_id"]]
-        for idea_sk in s.rng.sample(pool, min(load.votes, len(pool))):
-            rec.measure(
-                "vote", vote_fn, workers.tables[s.index], s.room["room_id"], s.user_id, idea_sk
-            )
-
-    phase(rec, "vote", [lambda s=s: vote(s) for s in students])
-
-    def comment(s: Student) -> None:
-        pool = by_room[s.room["room_id"]]
-        for n in range(load.comments):
-            rec.measure(
-                "comment",
-                ideas.add_comment,
-                workers.tables[s.index],
-                s.room["room_id"],
-                s.rng.choice(pool),
-                s.user_id,
-                s.name,
-                f"Comment {n} from student {s.index}",
-            )
-
-    phase(rec, "comment", [lambda s=s: comment(s) for s in students])
-
-    def reload(s: Student) -> None:
-        rec.measure(
-            "load_board", ideas.load_board, workers.tables[s.index], s.room["room_id"], True
-        )
-
-    phase(rec, "reload", [lambda s=s: reload(s) for s in students])
-    check_counters(rec, workers.tables[0], room_list)
+    room_list = make_rooms(rec, table, n_rooms)
+    phases = ["join", "post", "vote", "comment", "reload"]
+    plan = Plan(rec.scenario, rec.students, room_list, phases, load, seed, no_room_check)
+    run_plan(rec, plan, target)
+    check_counters(rec, table, room_list)
 
 
-def hot_idea(rec: Recorder, workers: Workers, seed: int) -> None:
-    """Everyone votes for the same idea at the same moment."""
-    workers.ensure(rec.students)
-    [room] = make_rooms(rec, workers, 1, f"{rec.scenario}-{rec.students}")
-    students = make_students(rec, [room], seed)
-    join_phase(rec, workers, students)
-    rec.phase = "post"
+def hot_idea(rec: "Recorder", target: Target, table, seed: int) -> None:
+    """The instructor posts one idea; everyone joins, then votes for it at the same moment."""
+    [room] = make_rooms(rec, table, 1)
+    owner = f"prof-{rec.scenario}-{rec.students}-0"
     idea = rec.measure(
-        "post_idea", ideas.post_idea, workers.tables[0], room["room_id"], "prof", "Prof", "Hot idea"
+        "post_idea", ideas.post_idea, table, room["room_id"], owner, "Prof", "Hot idea"
     )
     if idea is None:
         raise RuntimeError("could not post the hot idea")
-
-    def vote(s: Student) -> None:
-        rec.measure(
-            "vote", ideas.vote, workers.tables[s.index], room["room_id"], s.user_id, idea["SK"]
-        )
-
-    phase(rec, "vote", [lambda s=s: vote(s) for s in students])
-    check_counters(rec, workers.tables[0], [room])
+    plan = Plan(rec.scenario, rec.students, [room], ["join", "vote"], Load(), seed)
+    plan.hot_idea_sk = idea["SK"]
+    run_plan(rec, plan, target)
+    check_counters(rec, table, [room])
 
 
 def check_counters(rec: Recorder, table, room_list: list[dict[str, Any]]) -> None:
@@ -555,10 +653,8 @@ def check_counters(rec: Recorder, table, room_list: list[dict[str, Any]]) -> Non
     )
 
 
-def query_vs_scan(rec: Recorder, workers: Workers, n_rooms: int, ideas_per_room: int, seed: int):
+def query_vs_scan(rec: Recorder, table, n_rooms: int, ideas_per_room: int, seed: int):
     """Load a board with one Query vs a Scan of the whole table filtered to that room."""
-    workers.ensure(1)
-    table = workers.tables[0]
     expires_at = keys.epoch(keys.utc_now() + rooms.DEFAULT_TTL)
     room_ids = [keys.new_id() for _ in range(n_rooms)]
     with table.batch_writer() as batch:  # seeding only, not measured
@@ -701,6 +797,13 @@ def save(run_id: str, rec: Recorder, meta: dict[str, Any]) -> dict[str, Path]:
 # --- Commands ----------------------------------------------------------------------------------
 
 
+def default_processes() -> int:
+    """One load-generating process per CPU where fork is available (Linux, macOS), else one."""
+    if "fork" not in multiprocessing.get_all_start_methods():
+        return 1
+    return os.cpu_count() or 1
+
+
 def run(
     endpoint: str | None,
     scenarios: list[str],
@@ -713,6 +816,7 @@ def run(
     seed: int = 4411,
     keep_table: bool = False,
     run_id: str | None = None,
+    processes: int | None = None,
 ) -> str:
     """Run the scenarios on a new table and save the results; returns the run id."""
     load = load or Load()
@@ -742,24 +846,26 @@ def run(
         "client": f"{platform.system()} {platform.machine()}, {os.cpu_count()} CPUs",
     }
     rec = Recorder()
-    workers = Workers(endpoint, table_name)
+    target = Target(endpoint, table_name, processes or default_processes())
+    meta["processes"] = target.processes
+    [main_table] = make_tables(endpoint, table_name, 1)
     try:
         for students in student_counts:
             for scenario in [s for s in scenarios if s != "query-vs-scan"]:
                 rec.scenario, rec.students = scenario, students
                 print(f"{scenario}, {students} students ...", flush=True)
                 if scenario == "hot-room":
-                    classroom(rec, workers, 1, load, seed)
+                    classroom(rec, target, main_table, 1, load, seed)
                 elif scenario == "many-rooms":
-                    classroom(rec, workers, min(n_rooms, students), load, seed)
+                    classroom(rec, target, main_table, min(n_rooms, students), load, seed)
                 elif scenario == "no-room-check":
-                    classroom(rec, workers, 1, load, seed, vote_fn=vote_without_room_check)
+                    classroom(rec, target, main_table, 1, load, seed, no_room_check=True)
                 elif scenario == "hot-idea":
-                    hot_idea(rec, workers, seed)
+                    hot_idea(rec, target, main_table, seed)
         if "query-vs-scan" in scenarios:
             rec.scenario, rec.students = "query-vs-scan", 1
             print(f"query-vs-scan, {scan_rooms} rooms x {scan_ideas} ideas ...", flush=True)
-            query_vs_scan(rec, workers, scan_rooms, scan_ideas, seed)
+            query_vs_scan(rec, main_table, scan_rooms, scan_ideas, seed)
     finally:
         meta["finished_at"] = datetime.now(UTC).isoformat(timespec="seconds")
         meta["table_kept"] = keep_table
@@ -1101,6 +1207,12 @@ def main() -> int:
     run_cmd.add_argument("--provisioned", action="store_true", help="provisioned capacity table")
     run_cmd.add_argument("--keep-table", action="store_true")
     run_cmd.add_argument("--seed", type=int, default=4411)
+    run_cmd.add_argument(
+        "--processes",
+        type=int,
+        default=None,
+        help="load-generating processes (default: one per CPU; 1 where fork isn't available)",
+    )
 
     live_cmd = commands.add_parser("live", help="time HTTP write -> WebSocket event")
     live_cmd.add_argument("--api-url", default="http://127.0.0.1:3000")
@@ -1126,6 +1238,7 @@ def main() -> int:
                 scan_ideas=args.scan_ideas,
                 seed=args.seed,
                 keep_table=args.keep_table,
+                processes=args.processes,
             )
             print_summary(run_id)
         elif args.command == "live":

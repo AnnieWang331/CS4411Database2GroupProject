@@ -83,7 +83,8 @@ def test_percentile_is_nearest_rank():
     assert benchmark.percentile([7.0], 99) == 7.0
 
 
-def test_run_writes_results_and_finds_no_lost_updates(dynamodb, results):
+@pytest.mark.parametrize("processes", [1, 2])
+def test_run_writes_results_and_finds_no_lost_updates(dynamodb, results, processes):
     run_id = benchmark.run(
         dynamodb.meta.client.meta.endpoint_url,
         benchmark.SCENARIOS,
@@ -92,7 +93,8 @@ def test_run_writes_results_and_finds_no_lost_updates(dynamodb, results):
         load=benchmark.Load(posts=1, votes=2, comments=1),
         scan_rooms=3,
         scan_ideas=2,
-        run_id="test",
+        run_id=f"test-{processes}",
+        processes=processes,
     )
 
     out = benchmark.result_paths(run_id)
@@ -127,7 +129,6 @@ def test_run_writes_results_and_finds_no_lost_updates(dynamodb, results):
 
     phases = rows(out["phases"])
     assert [p["phase"] for p in phases if p["scenario"] == "hot-room"] == [
-        "setup",
         "join",
         "post",
         "vote",
