@@ -1,0 +1,3 @@
+scenario,students,votes_ok,vote_markers,vote_count_sum,comments_ok,comment_items,comment_count_sum,no_lost_updates
+hot-room,30,149,149,149,30,30,30,True
+hot-room,100,417,417,417,83,83,83,True

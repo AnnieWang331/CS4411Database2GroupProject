@@ -1,0 +1,13 @@
+scenario,students,votes_ok,vote_markers,vote_count_sum,comments_ok,comment_items,comment_count_sum,no_lost_updates
+hot-room,30,145,145,145,30,30,30,True
+many-rooms,30,150,150,150,30,30,30,True
+no-room-check,30,150,150,150,30,30,30,True
+hot-idea,30,30,30,30,0,0,0,True
+hot-room,100,473,473,473,99,99,99,True
+many-rooms,100,500,500,500,100,100,100,True
+no-room-check,100,500,500,500,98,98,98,True
+hot-idea,100,94,94,94,0,0,0,True
+hot-room,300,1443,1443,1443,294,294,294,True
+many-rooms,300,1497,1497,1497,300,300,300,True
+no-room-check,300,1500,1500,1500,293,293,293,True
+hot-idea,300,286,286,286,0,0,0,True

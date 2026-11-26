@@ -1,0 +1,7 @@
+op,count,ok,measure,p50_ms,p95_ms,p99_ms,max_ms
+post_idea,50,50,http_ms,125.3,137.9,145.9,145.9
+post_idea,50,50,event_after_response_ms,379.0,399.0,462.6,462.6
+post_idea,50,50,event_ms,501.8,514.1,594.5,594.5
+vote,50,50,http_ms,122.8,139.2,142.7,142.7
+vote,50,50,event_after_response_ms,125.8,151.6,382.7,382.7
+vote,50,50,event_ms,249.9,259.8,525.4,525.4

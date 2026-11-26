@@ -1,0 +1,11 @@
+scenario,students,phase,wall_s,ops,ok,ops_per_s,processes,client_cpu,client_cpu_max
+hot-room,30,join,0.847,90,90,106.3,12,1.38,0.16
+hot-room,30,post,0.962,60,60,62.4,12,0.99,0.12
+hot-room,30,vote,1.792,150,149,83.2,12,1.29,0.14
+hot-room,30,comment,0.679,30,30,44.2,12,0.74,0.08
+hot-room,30,reload,0.145,30,30,206.4,12,4.74,0.55
+hot-room,100,join,1.569,300,298,189.9,12,2.51,0.24
+hot-room,100,post,1.764,200,185,104.9,12,2.15,0.21
+hot-room,100,vote,118.34,500,417,3.5,12,0.12,0.01
+hot-room,100,comment,27.366,100,83,3.0,12,0.11,0.01
+hot-room,100,reload,0.508,100,100,197.0,12,7.44,0.67
