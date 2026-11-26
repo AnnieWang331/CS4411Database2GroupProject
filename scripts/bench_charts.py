@@ -79,8 +79,23 @@ def pick(rows, scenario: str, op: str, field: str) -> dict[int, float]:
     }
 
 
+def end_labels(ax, points: list[tuple[float, float]]) -> None:
+    """Label each line's last value, nudging labels apart so close values don't overlap."""
+    ax.set_ylim(bottom=0)
+    lo, hi = ax.get_ylim()
+    x_lo, x_hi = ax.get_xlim()
+    ax.set_xlim(x_lo, x_hi + (x_hi - x_lo) * 0.18)  # room for the labels inside the panel
+    dx, min_gap = (x_hi - x_lo) * 0.03, (hi - lo) * 0.07
+    placed: list[float] = []
+    for x, y in sorted(points, key=lambda p: p[1]):
+        shown = max(y, placed[-1] + min_gap) if placed else y
+        placed.append(shown)
+        ax.text(x + dx, shown, f"{y:,.0f}", va="center", color=INK)
+
+
 def lines(ax, rows, scenarios: list[str], op: str, field: str) -> None:
     """One line per scenario over the student counts, labelled at its last point."""
+    ends = []
     for color, scenario in zip(SERIES, scenarios, strict=False):
         values = pick(rows, scenario, op, field)
         if not values:
@@ -88,17 +103,10 @@ def lines(ax, rows, scenarios: list[str], op: str, field: str) -> None:
         xs = sorted(values)
         ys = [values[x] for x in xs]
         ax.plot(xs, ys, color=color, marker="o", markersize=6, label=LABELS[scenario])
-        ax.annotate(
-            f"{ys[-1]:,.0f}",
-            (xs[-1], ys[-1]),
-            xytext=(6, 0),
-            textcoords="offset points",
-            va="center",
-            color=INK,
-        )
+        ends.append((xs[-1], ys[-1]))
     ax.set_xticks(sorted({int(r["students"]) for r in rows if r["op"] == op}))
     ax.set_xlabel("Students")
-    ax.set_ylim(bottom=0)
+    end_labels(ax, ends)
 
 
 def legend_below(fig, ax) -> None:
@@ -192,29 +200,22 @@ def capacity_modes(run_id: str, provisioned_id: str, out: Path) -> Path:
     fig, axes = plt.subplots(1, 2, figsize=(8, 3.2))
     for ax, field, title in [
         (axes[0], "p95_ms", "Vote latency, 95th pct (ms)"),
-        (axes[1], "throttles", "Throttled requests (all ops)"),
+        (axes[1], "ok_per_s", "Votes per second"),
     ]:
-        op = "all" if field == "throttles" else "vote"
+        ends = []
         for color, rows, label in [
             (SERIES[0], on_demand, "On-demand"),
             (SERIES[1], provisioned, "Provisioned, 20 WCU"),
         ]:
-            values = pick(rows, "hot-room", op, field)
+            values = pick(rows, "hot-room", "vote", field)
             xs = [n for n in counts if n in values]
             ys = [values[n] for n in xs]
             ax.plot(xs, ys, color=color, marker="o", markersize=6, label=label)
             if ys:
-                ax.annotate(
-                    f"{ys[-1]:,.0f}",
-                    (xs[-1], ys[-1]),
-                    xytext=(6, 0),
-                    textcoords="offset points",
-                    va="center",
-                    color=INK,
-                )
+                ends.append((xs[-1], ys[-1]))
         ax.set_xticks(counts)
         ax.set_xlabel("Students (one room)")
-        ax.set_ylim(bottom=0)
+        end_labels(ax, ends)
         ax.set_title(title)
     legend_below(fig, axes[0])
     return save(fig, "capacity-modes", out)
