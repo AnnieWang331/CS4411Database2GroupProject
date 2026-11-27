@@ -365,8 +365,10 @@ There is no external dataset. All the data is made by our scripts:
   found.
   Your own runs are saved in the same folder under a new run id.
 - **Charts**: `benchmarks/charts/*.png`, drawn from those three runs by `bench_charts.py` (step 8).
-- **TTL results**: `benchmarks/results/ttl-20261124T213237Z-*`, from `scripts/ttl_demo.py` on
-  AWS (see "Show TTL deleting rooms" below).
+- **TTL results**: `benchmarks/results/ttl-20261124T213237Z-*` and `ttl-20261127T011549Z-*`,
+  from two runs of `scripts/ttl_demo.py` on AWS (see "Show TTL deleting rooms" below).
+  Console and terminal screenshots of the second run are in
+  `benchmarks/screenshots/ttl-20261127T011549Z/`.
 
 ### Settings
 
@@ -574,9 +576,12 @@ only keeps records for 24 hours, so check at least twice a day until everything 
 AWS_PROFILE=<your-profile> AWS_REGION=ca-central-1 python scripts/ttl_demo.py check <run id> --api-url <ApiUrl>
 ```
 
-In our run (`benchmarks/results/ttl-20261124T213237Z-*`) TTL deleted all 27 items 11 to 17
-minutes after they expired. AWS only promises "within a few days", so that's one sample, not a
-guarantee.
+In our first run (`benchmarks/results/ttl-20261124T213237Z-*`) TTL deleted all 27 items 11 to 17
+minutes after they expired. In the second (`ttl-20261127T011549Z-*`) all 27 items were gone 13 to
+14 minutes after they expired, and each room's items went in the same second. The stream only
+gave us the delete records for the 24 room items, not the 3 join-code items, so the delays in its
+`deletes.csv` cover those 24; the `checks.csv` reads show the code items were gone too. AWS only
+promises "within a few days", so these are two samples, not a guarantee.
 
 DynamoDB Local (3.3.2) didn't delete anything in our test: the items were still there 27 minutes
 after they expired. The script runs locally too (`DYNAMODB_ENDPOINT_URL=http://localhost:8000`),
