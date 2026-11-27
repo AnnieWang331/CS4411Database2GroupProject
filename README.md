@@ -391,6 +391,7 @@ docs/data-model.md     How we store the data in DynamoDB, and why
 docs/api.md            The HTTP and WebSocket APIs: routes, errors, live-update messages
 docs/benchmark.md      What the classroom load benchmark measured, and what it means
 docs/relational.md     The same board in PostgreSQL, compared pattern by pattern
+docs/challenges.md     Challenges we hit and how we got past them (for the presentation)
 docs/project-info/     Course requirements: project outline, grading rubric and our proposal
 template.yaml          The AWS deployment (SAM): table, HTTP and WebSocket APIs, live-update
                        function, web hosting
