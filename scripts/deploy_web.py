@@ -53,6 +53,12 @@ def web_files(root: Path = WEB) -> dict[str, Path]:
     return files
 
 
+# Browsers check for a new copy on every load (a 304 when nothing changed), so after a deploy
+# nobody runs a mix of old and new modules. CloudFront keeps its copy for a day (s-maxage wins
+# over max-age there), and the invalidation below clears it on every deploy.
+CACHE_CONTROL = "max-age=0, s-maxage=86400"
+
+
 def content_type(key: str) -> str:
     if key.endswith(".js"):
         return "text/javascript; charset=utf-8"  # some systems map .js to text/plain
@@ -97,7 +103,13 @@ def main() -> None:
     for key, body in uploads:
         print(f"upload  s3://{bucket}/{key}")
         if not args.dry_run:
-            s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type(key))
+            s3.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=body,
+                ContentType=content_type(key),
+                CacheControl=CACHE_CONTROL,
+            )
     for key in stale:
         print(f"delete  s3://{bucket}/{key}")
         if not args.dry_run:
