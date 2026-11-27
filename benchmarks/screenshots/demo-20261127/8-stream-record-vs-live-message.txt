@@ -1,0 +1,63 @@
+Listening on 4 open shard(s) and the room's socket for 45s.
+Do one action in the browser now (post an idea or vote).
+
+=== WebSocket message at 20:58:14 ===
+{"type": "idea_added", "room_id": "4216abbb6bb7446fa4479a9b83e42ecd", "idea": {"author_name": "Ada", "comment_count": 0, "entity_type": "IDEA", "expires_at": 1795831025, "created_at": "2026-11-27T01:58:13.997Z", "author_id": "u-e1462cbcac609702cd4cdb2c", "body": "Give a small prize for the best demo", "idea_id": "f4943115d7d643209a9103ad69dc6302", "vote_count": 0, "idea_sk": "IDEA#2026-11-27T01:58:13.997Z#f4943115d7d643209a9103ad69dc6302"}}
+
+=== Stream record (INSERT) ===
+{
+  "eventID": "be93ba902f74d93a8eb26d3ad0356d5f",
+  "eventName": "INSERT",
+  "eventVersion": "1.1",
+  "eventSource": "aws:dynamodb",
+  "awsRegion": "ca-central-1",
+  "dynamodb": {
+    "ApproximateCreationDateTime": "2026-11-26 20:58:14-05:00",
+    "Keys": {
+      "PK": {
+        "S": "ROOM#4216abbb6bb7446fa4479a9b83e42ecd"
+      },
+      "SK": {
+        "S": "IDEA#2026-11-27T01:58:13.997Z#f4943115d7d643209a9103ad69dc6302"
+      }
+    },
+    "NewImage": {
+      "PK": {
+        "S": "ROOM#4216abbb6bb7446fa4479a9b83e42ecd"
+      },
+      "SK": {
+        "S": "IDEA#2026-11-27T01:58:13.997Z#f4943115d7d643209a9103ad69dc6302"
+      },
+      "author_id": {
+        "S": "u-e1462cbcac609702cd4cdb2c"
+      },
+      "author_name": {
+        "S": "Ada"
+      },
+      "body": {
+        "S": "Give a small prize for the best demo"
+      },
+      "comment_count": {
+        "N": "0"
+      },
+      "created_at": {
+        "S": "2026-11-27T01:58:13.997Z"
+      },
+      "entity_type": {
+        "S": "IDEA"
+      },
+      "expires_at": {
+        "N": "1795831025"
+      },
+      "idea_id": {
+        "S": "f4943115d7d643209a9103ad69dc6302"
+      },
+      "vote_count": {
+        "N": "0"
+      }
+    },
+    "SequenceNumber": "10298400003352667191703373",
+    "SizeBytes": 424,
+    "StreamViewType": "NEW_AND_OLD_IMAGES"
+  }
+}

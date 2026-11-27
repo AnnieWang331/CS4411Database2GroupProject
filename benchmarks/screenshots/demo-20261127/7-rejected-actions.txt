@@ -1,0 +1,12 @@
+$ create room as prof-demo, student stu-demo joins and posts an idea
+{"expires_at": 1795831175, "display_name": "Ada", "user_id": "stu-demo", "entity_type": "PARTICIPANT", "joined_at": "2026-11-27T01:59:35.743Z"}
+
+$ 1. stu-demo votes (first time)
+204
+$ 1. stu-demo votes again
+{"error": "already_voted", "message": "IDEA#2026-11-27T01:59:35.867Z#ef5b89f75d404318979b59f716c04740"} 409
+$ 2. stu-demo tries to close the room
+{"error": "not_room_owner", "message": "74650d1ae3be4da9899dc9fa8a8348e1"} 403
+$ 3. prof-demo closes it, then stu-demo posts
+204
+{"error": "room_closed", "message": "74650d1ae3be4da9899dc9fa8a8348e1"} 409
