@@ -134,8 +134,14 @@ job in `.github/workflows/ci.yml`).
 
 ### 1. Install the Python packages
 
-Clone the repository, or unzip the submitted archive, and run every command below from its top
-folder (the one with this README). Nothing needs git.
+Clone the repository and run every command below from its top folder (the one with this README):
+
+```sh
+git clone https://github.com/AnnieWang331/CS4411Database2GroupProject.git
+cd CS4411Database2GroupProject
+```
+
+Without git, download it from GitHub with Code > Download ZIP and unzip it instead.
 
 Make a virtual environment and turn it on. For example, run `python -m venv .venv` and then
 `source .venv/bin/activate` (in PowerShell, see "On Windows" above; a pyenv virtualenv works
