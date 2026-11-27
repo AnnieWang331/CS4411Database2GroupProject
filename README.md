@@ -369,6 +369,10 @@ There is no external dataset. All the data is made by our scripts:
   from two runs of `scripts/ttl_demo.py` on AWS (see "Show TTL deleting rooms" below).
   Console and terminal screenshots of the second run are in
   `benchmarks/screenshots/ttl-20261127T011549Z/`.
+- **Demo evidence**: `benchmarks/screenshots/demo-20261127/`, from the deployed stack: the
+  instructor and student screens, the room's items, the three actions the database rejects
+  (vote twice, non-owner close, post after close), and one stream record next to the live
+  message it became.
 
 ### Settings
 
