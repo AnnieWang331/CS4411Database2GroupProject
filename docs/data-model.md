@@ -35,8 +35,9 @@ Only three things live outside the room's partition:
 - Timestamps are ISO 8601 in UTC and always have the same length, for example
   `2026-10-18T14:05:31.120Z` (we always include milliseconds). Because they're the same length,
   sorting them as text also sorts them by time.
-- `room_id`, `idea_id` and `comment_id` are random UUIDs. `user_id` is made up by the client,
-  since there are no logins (open question 2).
+- `room_id`, `idea_id` and `comment_id` are random UUIDs written as 32 hex characters
+  (`uuid4().hex`). The examples below shorten them to 8 characters so they fit. `user_id` is
+  made up by the client, since there are no logins (open question 2).
 - Every item has an `entity_type` (like `ROOM` or `IDEA`) so we can tell items apart.
 - Every item in a room has `expires_at` (a number, in seconds since 1970) copied from the room.
   DynamoDB's *Time to Live* (TTL) feature deletes items after that time, so the whole room gets
@@ -270,7 +271,7 @@ post, with no limit on how many.
 
 We first read the room to get its `expires_at` (pattern 3). Then:
 
-1. Check the room: `#status = :open AND expires_at = :exp AND expires_at > :now`.
+1. Check the room: `#status = :open AND expires_at > :now AND expires_at = :exp`.
 2. Add the idea with `vote_count = 0`, `comment_count = 0` and the room's `expires_at`, using
    `attribute_not_exists(PK)`.
 
@@ -278,6 +279,10 @@ Checking `expires_at = :exp` makes sure the idea always gets the same expiry tim
 Later, we could add a third check that the poster is a participant in the room.
 
 ### 4.4 Vote
+
+We first read the room to copy its `expires_at` onto the vote marker (pattern 3). Unlike
+posting, the room check below doesn't also compare `expires_at = :exp`. That's fine because a
+room's expiry never changes after it's created, so the copy is always right.
 
 1. Check the room: `#status = :open AND expires_at > :now`.
 2. Add the vote marker `VOTE#<user>#<idea>` with `attribute_not_exists(PK)`. If the person already
@@ -301,7 +306,7 @@ If step 2 fails, the person hadn't voted for that idea.
 
 ### 4.6 Comment
 
-1. Check the room: `#status = :open AND expires_at = :exp AND expires_at > :now`.
+1. Check the room: `#status = :open AND expires_at > :now AND expires_at = :exp`.
 2. Add the comment with `attribute_not_exists(PK)`.
 3. Add 1 to the idea's comment count with `ADD comment_count :one`, only if the idea exists.
 
@@ -521,7 +526,7 @@ Our answer, or what we did instead, is in brackets.
 [4] AWS, "Best practices for designing and using partition keys effectively," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html
 [5] AWS, "Using write sharding to distribute workloads evenly," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-sharding.html
 [6] AWS, "Amazon DynamoDB Transactions: How it works," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis.html
-[7] AWS, "Condition expressions," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.ConditionExpressions.html
+[7] AWS, "DynamoDB condition expression CLI example," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.ConditionExpressions.html
 [8] AWS, "Update expressions," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
 [9] AWS, "Using Global Secondary Indexes in DynamoDB," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html
 [10] AWS, "Using time to live (TTL) in DynamoDB," https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/TTL.html
