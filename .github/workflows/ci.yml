@@ -162,3 +162,21 @@ jobs:
         run: |
           docker exec brainstorm-postgres psql -X -q -U postgres -v ON_ERROR_STOP=1 \
             -f /sql/schema.sql -f /sql/queries.sql -f /sql/checks.sql -f /sql/demo.sql
+
+  # Builds the final report (report/) so anyone can download the PDF from the run's artifacts.
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the PDF
+        run: |
+          docker run --rm -v "$PWD/report:/w" -w /w -u "$(id -u):$(id -g)" \
+            texlive/texlive:latest-medium latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+      - name: No undefined references or overfull lines
+        run: |
+          ! grep -E "undefined|Overfull" report/main.log
+      - uses: actions/upload-artifact@v7
+        with:
+          name: report-pdf
+          path: report/main.pdf

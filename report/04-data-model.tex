@@ -1,0 +1,221 @@
+% needs booktabs, tabularx and [T1]{fontenc} (so \textless and \textgreater work inside
+% \texttt). main.tex already loads them.
+%
+% every key and condition expression here was checked against the code in src/brainstorm/.
+% the full design is in docs/data-model.md.
+
+\section{Case Study Design: Data Model and Access Patterns}\label{sec:data-model}
+
+DynamoDB has no joins and no query optimizer (Section~\ref{sec:features}), so a table has to be
+shaped around the questions the application will ask. AWS recommends listing the access patterns
+first and choosing keys second~\cite{nosql-design}, and we followed that order. The full design
+is in \texttt{docs/data-model.md}. The code is in \texttt{src/brainstorm/}: \texttt{keys.py}
+builds every key, and \texttt{rooms.py} and \texttt{ideas.py} hold one function per access
+pattern.
+
+\subsection{Access Patterns}\label{sec:dm-patterns}
+
+An \emph{access pattern} is one read or write the application needs, such as ``load a room's
+board'' or ``vote for an idea''. Before writing any code, we listed 21 of them and picked one
+DynamoDB operation for each. Table~\ref{tab:access-patterns} groups them by operation, and
+Appendix~\ref{app:access-patterns} lists all 21 separately.
+
+\begin{table}[htbp]
+  \centering
+  \footnotesize
+  \caption{Access patterns grouped by the operation that serves them. P-numbers match
+    \texttt{docs/data-model.md} and the code. ``Desc.'' means newest first.}
+  \label{tab:access-patterns}
+  \begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}p{5.4cm}>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    P & What the app does & Operation and key \\
+    \midrule
+    1, 16 & Create or close a room & Transaction (Table~\ref{tab:rules}) \\
+    4, 6, 11, 12, 14 & Join, post, vote, take a vote back, comment & Transaction with a room
+      check (Table~\ref{tab:rules}) \\
+    2, 3 & Find a room by join code or by id & \texttt{GetItem} on
+      \texttt{CODE\#\textless code\textgreater} or \texttt{ROOM\#\textless room\_id\textgreater},
+      sort key \texttt{META} \\
+    7, 8 & Load the board, without or with comments & \texttt{Query}, \texttt{SK BETWEEN
+      \textquotesingle IDEA\#\textquotesingle{} AND \textquotesingle META\textquotesingle{}}
+      or \texttt{SK \textless= \textquotesingle META\textquotesingle{}}, desc. \\
+    5, 9, 13, 15, 21 & Participants, a page of ideas, my votes, one idea's comments, open
+      connections & \texttt{Query}, \texttt{begins\_with} on \texttt{USER\#}, \texttt{IDEA\#},
+      \texttt{VOTE\#\textless user\_id\textgreater\#},
+      \texttt{COMMENT\#\textless idea\_id\textgreater\#} or \texttt{WS\#} \\
+    17 & An instructor's rooms & \texttt{Query} on GSI1,
+      \texttt{GSI1PK = USER\#\textless owner\_id\textgreater}, desc. \\
+    19, 20 & Connect or disconnect a WebSocket & \texttt{GetItem} and a transaction
+      (Section~\ref{sec:impl-live}) \\
+    10, 18 & Top-voted ideas; delete old rooms & No call: sort P7's result in the app; TTL \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Every pattern is a \texttt{GetItem} on one key, a \texttt{Query} inside one partition, or a
+transaction. None is a \texttt{Scan}, whose cost would grow with every room ever created
+(Section~\ref{sec:features}). A \texttt{Query} returns at most 1~MB per call~\cite{pagination}, so
+our helper \texttt{query\_all} follows \texttt{LastEvaluatedKey} until the last page.
+
+\subsection{Single-Table Layout}\label{sec:dm-layout}
+
+We store all eight item types in one table, \texttt{BrainstormBoard}, which is called a
+\emph{single-table design} (Table~\ref{tab:items}). The keys \texttt{PK} and \texttt{SK} are
+strings, and each key value starts with an uppercase prefix joined with \texttt{\#}.
+
+\begin{table}[htbp]
+  \centering
+  \footnotesize
+  \caption{Item types in the \texttt{BrainstormBoard} table (key builders in
+    \texttt{src/brainstorm/keys.py}). Every item also stores \texttt{entity\_type} and the room's
+    \texttt{expires\_at}.}
+  \label{tab:items}
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabularx}{\linewidth}{@{}lll>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    Item & \texttt{PK} & \texttt{SK} & Main attributes \\
+    \midrule
+    Room & \texttt{ROOM\#\textless room\_id\textgreater} & \texttt{META} &
+      \texttt{code}, \texttt{topic}, \texttt{status}, \texttt{owner\_id} \\
+    Join code & \texttt{CODE\#\textless code\textgreater} & \texttt{META} & \texttt{room\_id} \\
+    Participant & \texttt{ROOM\#\textless room\_id\textgreater} &
+      \texttt{USER\#\textless user\_id\textgreater} & \texttt{display\_name} \\
+    Idea & \texttt{ROOM\#\textless room\_id\textgreater} &
+      \texttt{IDEA\#\textless created\_at\textgreater\#\textless idea\_id\textgreater} &
+      \texttt{author\_name}, \texttt{body}, \texttt{vote\_count}, \texttt{comment\_count} \\
+    Vote marker & \texttt{ROOM\#\textless room\_id\textgreater} &
+      \texttt{VOTE\#\textless user\_id\textgreater\#\textless idea\_id\textgreater} &
+      \texttt{idea\_sk} \\
+    Comment & \texttt{ROOM\#\textless room\_id\textgreater} &
+      \texttt{COMMENT\#\textless idea\_id\textgreater\#\textless created\_at\textgreater\#\textless id\textgreater} &
+      \texttt{author\_name}, \texttt{body} \\
+    Connection & \texttt{ROOM\#\textless room\_id\textgreater} &
+      \texttt{WS\#\textless connection\_id\textgreater} & \texttt{connected\_at} \\
+    Conn.\ lookup & \texttt{CONN\#\textless connection\_id\textgreater} & \texttt{META} &
+      \texttt{room\_id} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{One partition per room.} Everything in a room shares the partition key
+\texttt{ROOM\#\textless room\_id\textgreater}. These items form one \emph{item collection}, kept
+in sort-key order, so one \texttt{Query} can read any range of them. DynamoDB places data by a
+hash of the partition key~\cite{elhemali2022}, so a whole class also sends its traffic to one
+key, which we test in Section~\ref{sec:evaluation}. Only three things live outside the room: join
+codes, which need their own key to stay unique; the room's entry in the sparse index GSI1, which
+lists an instructor's rooms~\cite{sparse}; and connection lookups, because a WebSocket disconnect
+event only carries the connection id.
+
+\paragraph{The sort-key order is part of the design.} Inside a room the prefixes sort as
+\texttt{COMMENT\#} \textless{} \texttt{IDEA\#} \textless{} \texttt{META} \textless{}
+\texttt{USER\#} \textless{} \texttt{VOTE\#} \textless{} \texttt{WS\#}. So a board load is one
+range~\cite{key-conditions}: up to \texttt{META} from \texttt{IDEA\#} gives the room and its
+ideas, and up to \texttt{META} from the start also gives the comments. Read in reverse, the
+\texttt{META} item comes first, so the same call tells us whether the room exists. Participants,
+votes and connections sort after \texttt{META} and are never read by a board load. Any new
+in-room item type must therefore sort after \texttt{META} too.
+
+\paragraph{Timestamps and names.} Timestamps are fixed-width ISO~8601 strings in UTC with
+milliseconds, such as \texttt{2026-10-18T14:05:31.120Z}, so text order is time order. Putting
+\texttt{created\_at} at the start of an idea's sort key gives time-ordered ideas without an
+index. Every item stores an \texttt{entity\_type}, so the code and the stream consumer can tell
+items apart without parsing keys. Because \texttt{status} is a reserved
+word~\cite{reserved-words}, every expression refers to it as \texttt{\#status}.
+
+\subsection{Enforcing Rules with Condition Expressions}\label{sec:dm-rules}
+
+The board has four rules: activity only in open rooms, one vote per student per idea, no shared
+join codes among open rooms, and only the owner closes a room. The obvious way to enforce them,
+\emph{check-then-write}, is a race. Between reading the room and writing, the room can close, or
+the same student can vote again from a second tab, and both requests pass the check. DynamoDB
+has no unique constraints or foreign keys either. So every rule is a condition expression, which
+DynamoDB evaluates against the stored item at the moment of the write~\cite{condition-expressions}.
+Rules that span several items use one all-or-nothing \texttt{TransactWriteItems}
+call~\cite{transactions}. Table~\ref{tab:rules} lists every action.
+
+\begin{table}[htbp]
+  \centering
+  \footnotesize
+  \caption{Rules and the transaction actions that enforce them (\texttt{rooms.py},
+    \texttt{ideas.py}). \textit{Room check} is a \texttt{ConditionCheck} on the room's
+    \texttt{META} item with \texttt{\#status = :open AND expires\_at \textgreater{} :now}
+    (\texttt{:now} is the current epoch second). ``+ \texttt{:exp}'' appends
+    \texttt{AND expires\_at = :exp}.}
+  \label{tab:rules}
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.5cm}l>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    Operation (rule) & Action & Condition expression \\
+    \midrule
+    Create room & \texttt{Put} room & \texttt{attribute\_not\_exists(PK)} \\
+    (unique code) & \texttt{Put} code item &
+      \texttt{attribute\_not\_exists(PK) OR expires\_at \textless{} :now} \\
+    \addlinespace
+    Join (open room) & \texttt{ConditionCheck} room & Room check \\
+     & \texttt{Update} participant & none \\
+    \addlinespace
+    Post idea (open room) & \texttt{ConditionCheck} room & Room check + \texttt{:exp} \\
+     & \texttt{Put} idea & \texttt{attribute\_not\_exists(PK)} \\
+    \addlinespace
+    Vote (open room, & \texttt{ConditionCheck} room & Room check \\
+    one vote per user) & \texttt{Put} vote marker & \texttt{attribute\_not\_exists(PK)} \\
+     & \texttt{Update} idea, \texttt{ADD vote\_count :one} & \texttt{attribute\_exists(PK)} \\
+    \addlinespace
+    Take vote back & \texttt{ConditionCheck} room & Room check \\
+     & \texttt{Delete} vote marker & \texttt{attribute\_exists(PK)} \\
+     & \texttt{Update} idea, \texttt{ADD vote\_count :minus\_one} &
+      \texttt{attribute\_exists(PK) AND vote\_count \textgreater{} :zero} \\
+    \addlinespace
+    Comment (open room) & \texttt{ConditionCheck} room & Room check + \texttt{:exp} \\
+     & \texttt{Put} comment & \texttt{attribute\_not\_exists(PK)} \\
+     & \texttt{Update} idea, \texttt{ADD comment\_count :one} & \texttt{attribute\_exists(PK)} \\
+    \addlinespace
+    Close room & \texttt{Update} room, \texttt{SET \#status = :closed} &
+      \texttt{owner\_id = :uid AND \#status = :open AND expires\_at \textgreater{} :now} \\
+    (owner only) & \texttt{Delete} code item &
+      \texttt{attribute\_not\_exists(PK) OR room\_id = :rid} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{How the conditions work.} Uniqueness comes from keys: DynamoDB never stores two items
+with the same key, so a vote marker keyed by user and idea plus
+\texttt{attribute\_not\_exists(PK)} rejects a second vote, and the \texttt{CODE\#} item does the
+same for join codes. A code item may be reused once it has expired, because TTL can take days to
+delete it~\cite{ttl}. Counter updates are guarded by \texttt{attribute\_exists(PK)}, because an
+update on a missing key would create a new item~\cite{update-expressions}, here a broken idea
+holding only a count. The code still reads the room before writing, but only to copy its
+\texttt{expires\_at} onto the new item; for posts and comments, ``+ \texttt{:exp}'' makes sure
+that copy is right. The decision is always made by the condition.
+
+\paragraph{Knowing which rule failed.} A cancelled transaction returns one reason per action, in
+order~\cite{transactions, transactwriteitems}. Our wrapper \texttt{transact\_write}
+(\texttt{transactions.py}) exposes this as \texttt{failed(i)}, so for a vote, action~0 means the
+room is closed and action~1 means the student already voted. The API turns these into errors
+such as \texttt{409 already\_voted}, shown in Section~\ref{sec:demo}. Conflicts and throttling
+are retried as described in Section~\ref{sec:features}; failed conditions never are.
+
+\paragraph{The room check has a cost.} A \texttt{ConditionCheck} counts as touching the item, and
+two transactions touching the same item at once conflict~\cite{transactions}. Every post, vote
+and comment checks the room's \texttt{META} item, so that is where a busy class collides. In our
+AWS benchmark (\texttt{scripts/benchmark.py}, 300 simulated students in one room), votes had
+1,688 conflicts with the check and 16 without it (Section~\ref{sec:evaluation}). We kept it so a
+closed board cannot change.
+
+\subsection{Design Trade-offs}\label{sec:dm-tradeoffs}
+
+\paragraph{Author names are copied onto posts.} Ideas and comments keep the
+\texttt{author\_name} they were posted with, so a board load stays one \texttt{Query}. A student
+who rejoins under a new name only sees it on new posts. Current names would need a second
+\texttt{Query} for participants on every load, or one write per old post on each rename. A
+relational design uses a join instead (Section~\ref{sec:relational}).
+
+\paragraph{Every item copies the room's expiry.} This lets TTL delete a whole room with no code
+of ours~\cite{ttl}, and lets every condition check the expiry. The cost is that a room's lifetime
+(24 hours by default) is fixed at creation: extending it would mean rewriting every item in the room.
+
+\paragraph{Connections are stored twice.} The \texttt{WS\#} item lets the stream consumer list a
+room's connections with one \texttt{Query}, and the \texttt{CONN\#} item lets a disconnect find
+the room. A GSI on the connection id would replace the second item, but GSI reads are eventually
+consistent~\cite{gsi}, so a quick connect-then-disconnect could miss it. Disconnect events are
+also best-effort~\cite{apigw-connect}, so failed sends (\texttt{GoneException}) and TTL clean up
+what is left.
