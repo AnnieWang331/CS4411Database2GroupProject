@@ -40,7 +40,7 @@ ahead of time, which makes it a good fit for DynamoDB's data modelling. The proj
 
 - Project proposal (submitted November 4, 2026; see
   [the proposal](docs/project-info/cs4411-group-20-project-proposal.pdf))
-- Final report (LaTeX/Overleaf template)
+- Final report (LaTeX, in the course template's style; source in [`report/`](report/README.md))
 - 15-minute recorded group presentation with slides and a live demo
 - Complete project artifacts for reproducibility: source code, datasets, and supporting materials
 
@@ -433,6 +433,7 @@ sql/                   The same board in PostgreSQL, for the relational comparis
                        (schema, one function per access pattern, checks, demo data)
 benchmarks/results/    Measurements we ran, as CSV: TTL delete delays and benchmark runs
 benchmarks/charts/     The benchmark charts for the report
+report/                The final report (LaTeX); report/README.md says how to build the PDF
 tests/                 Our tests (most run against DynamoDB Local; tests/infra checks
                        template.yaml)
 ```

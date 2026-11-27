@@ -1,0 +1,28 @@
+% not written yet, except the websocket paragraph in 5.3.
+
+\section{Implementation}\label{sec:implementation}
+
+\subsection{System Overview}
+
+\textit{To be written.}
+
+\subsection{HTTP API}
+
+\textit{To be written.}
+
+\subsection{Live Updates with Streams, Lambda and WebSockets}\label{sec:impl-live}
+
+\textit{To be written.}
+
+% moved here from 4.3, already written:
+\paragraph{WebSocket connects skip the check on purpose.} A whole class connects at once, so a
+room check on every connect would add to the conflicts on the room item
+(Section~\ref{sec:dm-rules}). Instead, the \texttt{connect} function in
+\texttt{connections.py} writes the \texttt{WS\#} and \texttt{CONN\#} items without a room
+condition and then reads the room again with a strongly consistent read~\cite{read-consistency}.
+If the room has closed by then, it deletes both items and refuses the connection. Otherwise any
+later close comes after our write, so the stream consumer will find the connection and tell it.
+
+\subsection{Web Client and Deployment}
+
+\textit{To be written.}

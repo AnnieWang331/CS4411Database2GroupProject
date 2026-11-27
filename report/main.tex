@@ -1,0 +1,91 @@
+% final report for cs4411, group 20 (#13). README.md in this folder says how to build it.
+%
+% it's made to look like the course's overleaf template, same as our proposal. each section is
+% its own file so we can work on different ones without merge conflicts.
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{mathptmx}            % times font, like the template
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}            % for the tables
+\usepackage{tabularx}
+\usepackage{subcaption}          % for side by side figures
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{figures/}}
+\newcommand{\westernlogo}{western-logo}
+
+\begin{document}
+
+% ---------------------------------------------------------------- title page
+\begin{titlepage}
+  \centering
+  \IfFileExists{figures/\westernlogo.pdf}{\includegraphics[width=0.45\textwidth]{\westernlogo}\par}{}
+  \vspace{1.5em}
+  The University of Western Ontario\\
+  Department of Computer Science\par
+  \vspace{3em}
+  {\LARGE\bfseries Real-Time Brainstorm Board:\\
+    An In-Depth Analysis of Amazon DynamoDB\par}
+  \vspace{2.5em}
+  {\large\itshape Group 20 Members:\par}
+  {\large
+    Sachin Singh (ssing863)\\
+    Myoungji Cho (mcho57)\\
+    Muhammad Khawaja (mkhawa5)\\
+    Wei Tin Wang (wwang939)\\
+    Alexander King Perocho (aperocho)\par}
+  \vspace{1em}
+  {\large CS4411/9538 Databases II (Advanced Databases)\par}
+  \vspace{2em}
+  {\large Final Report\par}
+  \vspace{1em}
+  December 6, 2026\par
+\end{titlepage}
+
+% ---------------------------------------------------------------- abstract and contents
+\pagenumbering{roman}
+
+\begin{abstract}
+% about 150 words, write it last: what dynamodb is, what we built, 3 results (one room 65-80
+% votes/s vs 10 rooms 200-350, query 1.5 rcu vs scan 567 rcu, live updates 250-500 ms) and a
+% one line conclusion.
+\textit{To be written.}
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+\pagenumbering{arabic}
+
+% ---------------------------------------------------------------- body
+\input{01-introduction}
+\input{02-architecture}
+\input{03-features}
+\input{04-data-model}
+\input{05-implementation}
+\input{06-demonstration}
+\input{07-evaluation}
+\input{08-relational}
+\input{09-discussion}
+\input{10-challenges}
+\input{11-scope}
+\input{12-conclusion}
+
+% ---------------------------------------------------------------- references
+\clearpage
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+% ---------------------------------------------------------------- appendices
+\clearpage
+\appendix
+\input{appendix-reproducibility}     % appendix a
+\input{appendix-access-patterns}     % appendix b
+
+\end{document}

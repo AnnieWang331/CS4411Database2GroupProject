@@ -1,0 +1,74 @@
+% appendix b: the full version of the access pattern table in 4.1. checked against rooms.py,
+% ideas.py and connections.py.
+
+\section{Full Access-Pattern Table}\label{app:access-patterns}
+
+Table~\ref{tab:access-patterns-full} lists all 21 access patterns from
+\texttt{docs/data-model.md}, Section~1. The pattern numbers also appear in the docstrings of
+\texttt{src/brainstorm/rooms.py}, \texttt{ideas.py} and \texttt{connections.py}, so each row can be
+traced to the function that implements it. Every key is in the room's partition
+\texttt{ROOM\#\textless room\_id\textgreater} unless the row says otherwise.
+
+\begin{table}[htbp]
+  \centering
+  \footnotesize
+  \caption{All access patterns of the brainstorm board and the operation that serves each.
+    ``Desc.'' means newest first (\texttt{ScanIndexForward=False}). ``Transaction'' means
+    \texttt{TransactWriteItems}; its conditions are in Table~\ref{tab:rules}.}
+  \label{tab:access-patterns-full}
+  \begin{tabularx}{\linewidth}{@{}r>{\raggedright\arraybackslash}p{3.9cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{2.9cm}@{}}
+    \toprule
+    P & What the app does & Operation and key & Function \\
+    \midrule
+    1 & Create a room with a unique join code & Transaction: put room and
+      \texttt{CODE\#\textless code\textgreater} item & \texttt{create\_room} \\
+    2 & Find a room from its join code & \texttt{GetItem} on
+      \texttt{CODE\#\textless code\textgreater}, \texttt{META}, strongly
+      consistent~\cite{read-consistency}; then P3; reject if expired & \texttt{resolve\_code} \\
+    3 & Get a room's details & \texttt{GetItem} on \texttt{META}; reject if expired &
+      \texttt{get\_room} \\
+    4 & Join a room & Transaction: room check, add or update \texttt{USER\#\textless
+      user\_id\textgreater} & \texttt{join\_room} \\
+    5 & List a room's participants & \texttt{Query}, \texttt{begins\_with(SK,
+      \textquotesingle USER\#\textquotesingle{})} & \texttt{list\_participants} \\
+    6 & Post an idea & Transaction: room check, put \texttt{IDEA\#} item & \texttt{post\_idea} \\
+    7 & Load the board & \texttt{Query}, \texttt{SK BETWEEN \textquotesingle IDEA\#\textquotesingle{}
+      AND \textquotesingle META\textquotesingle{}}, desc. & \texttt{load\_board} \\
+    8 & Load the board with comments & \texttt{Query}, \texttt{SK \textless=
+      \textquotesingle META\textquotesingle{}}, desc. & \texttt{load\_board} \\
+    9 & Page through ideas & \texttt{Query}, \texttt{begins\_with(SK,
+      \textquotesingle IDEA\#\textquotesingle{})}, desc., \texttt{Limit} (default 20) &
+      \texttt{list\_ideas} \\
+    10 & Show the top-voted ideas & No call: sort the ideas from P7 by \texttt{vote\_count} in the
+      app & \texttt{top\_ideas} \\
+    11 & Vote (once per user per idea) & Transaction: room check, put vote marker, add 1 to
+      \texttt{vote\_count} & \texttt{vote} \\
+    12 & Take a vote back & Transaction: room check, delete vote marker, subtract 1 &
+      \texttt{unvote} \\
+    13 & See which ideas I voted for & \texttt{Query}, \texttt{begins\_with(SK,
+      \textquotesingle VOTE\#\textless user\_id\textgreater\#\textquotesingle{})} &
+      \texttt{my\_votes} \\
+    14 & Comment on an idea & Transaction: room check, put comment, add 1 to
+      \texttt{comment\_count} & \texttt{add\_comment} \\
+    15 & Read the comments on one idea & \texttt{Query}, \texttt{begins\_with(SK,
+      \textquotesingle COMMENT\#\textless idea\_id\textgreater\#\textquotesingle{})}, oldest
+      first & \texttt{list\_comments} \\
+    16 & Close a room & Transaction: mark room closed, delete its code item &
+      \texttt{close\_room} \\
+    17 & An instructor's rooms & \texttt{Query} on GSI1, \texttt{GSI1PK =
+      USER\#\textless owner\_id\textgreater}, desc.; eventually consistent~\cite{gsi}; expired
+      rooms dropped & \texttt{list\_owner\_rooms} \\
+    18 & Delete old rooms & No call: TTL deletes items after \texttt{expires\_at}~\cite{ttl} & --- \\
+    19 & Connect a WebSocket to a room & Strongly consistent P3, transaction puts
+      \texttt{WS\#\textless connection\_id\textgreater} and
+      \texttt{CONN\#\textless connection\_id\textgreater}, strongly consistent P3 again &
+      \texttt{connect} \\
+    20 & Disconnect a WebSocket & \texttt{GetItem} on
+      \texttt{CONN\#\textless connection\_id\textgreater}, strongly consistent; transaction
+      deletes both items & \texttt{disconnect} \\
+    21 & List a room's connections (live updates) & \texttt{Query}, \texttt{begins\_with(SK,
+      \textquotesingle WS\#\textquotesingle{})}, strongly consistent; expired ones skipped except
+      for \texttt{room\_expired} & \texttt{list\_connections} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
