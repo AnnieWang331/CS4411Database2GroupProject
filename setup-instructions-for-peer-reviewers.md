@@ -1,15 +1,16 @@
 # Recommended for Peer-Reviewers: Instructions for running our project in the school lab computer 
 
 ## Overview
-We reconigize that everyone's pc setup, enviourments and experiences are all different. In an effort to make sure that at least one instruction gerrented to work for all student, we made this `step-by-step` guild on how to setup our project in the computers located in the lab room at **Middlesex College 2nd Floor Room 244**. 
+We recognize that everyone's PC setup, environment and experiences are different. In an effort to make sure that at least one set of instruction guaranteed to work for all student, we made this `step-by-step` guild for setting up the project on the lab computers located at **Middlesex College 2nd Floor Room 244**. 
 
-This project should be run-able if a student follow the exact `step-by-step` guild with no friction at all. 
+Following this specific set of instruction on the lab PCs should make the setup friction-less. 
+A [YouTube video](https://www.youtube.com/watch?v=tu6CemJ2Jz8) demonstrating these instruction on one of the lab PC also exists: <https://www.youtube.com/watch?v=tu6CemJ2Jz8>
 
 ## Instruction: 
 
-1. **Open a bash terminal** 
+1. **Open a Bash Terminal** 
     1. Open a bash terminal with `Ctrl + Alt + T` 
-    2. Make a new folder called `CS4411` and change the directory to the newly made folder \
+    2. Make a new folder called `CS4411` and cd into the newly made folder \
         **Command Input:**
         ```
         mkdir -p ~/CS4411 && cd ~/CS4411
@@ -17,12 +18,12 @@ This project should be run-able if a student follow the exact `step-by-step` gui
         Your bash terminal's new line should output `[student id]@pcr-[lab pc number]:~/CS4411$ `. \
         **Sample Output:**
         ```
-        [student id]@pcr-[lab pc number]:~/CS4411$
+        [student id]@pcr-[lab pc number]:~/CS4411$ 
         ```
-        **Do not preceed to next step if this is not true.**
+        **Do not proceed to next step if this is not true.**
 
-2. **Clone the repo** \
-Note: from this point on, any command that needs to be ran are pasted and executed into the bash terminal we just openned. \
+2. **Clone the Repository** \
+Note: from this point on, any command that needs to be ran are pasted and executed into the bash terminal. \
 **Command Input:**
     ```
     git clone https://github.com/AnnieWang331/CS4411Database2GroupProject.git
@@ -38,17 +39,17 @@ Note: from this point on, any command that needs to be ran are pasted and execut
     Resolving deltas: 100% (211/211), done.
     ```
 3. **Check Python Version** \
-It should be pre-installed, still, best practice to check it. \
+Python should be pre-installed, still, best practice to check it's version. \
 **Command Input:**
     ```
     python3 -V
     ```
-    This should output `Python 3.14.4`, anything above Python 3.12 is okay. \
+    This should output `Python 3.14.4`, any version above `Python 3.12` is okay. \
     **Sample Output:**
     ```
     Python 3.14.4
     ```
-4. **Setup Virtual environment** \
+4. **Setup Virtual Environment** \
 **Command Input:**
     ```
     cd ~/CS4411/CS4411Database2GroupProject/
@@ -56,12 +57,12 @@ It should be pre-installed, still, best practice to check it. \
     source .venv/bin/activate
     .venv\Scripts\Activate.ps1
     ```
-    The newline should output `(.venv)` at the start. \
+    The newline should start with `(.venv)`.\
     **Sample Output:**
     ```
     (.venv) [student id]@pcr-[lab pc number]:~/CS4411/CS4411Database2GroupProject$ 
     ```
-    Continue setup Virtual environment inside venv: \
+    Continue setup in the virtual environment: \
     **Command Input:**
     ```
     wget https://bootstrap.pypa.io/get-pip.py
@@ -82,7 +83,7 @@ It should be pre-installed, still, best practice to check it. \
     Successfully installed PyYAML-6.0.4 annotated-types-0.8.0 attrs-26.1.0 aws-sam-translator-1.118.0 awscrt-0.38.0 boto3-1.43.114 botocore-1.43.127 cfn-lint-1.48.1 contourpy-1.4.0 cycler-0.12.1 fonttools-4.69.1 iniconfig-2.3.1 jmespath-1.1.0 jsonpatch-1.48 jsonpointer-3.12 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 kiwisolver-1.5.1 matplotlib-3.11.2 mpmath-1.3.0 networkx-3.7 numpy-2.5.5 packaging-26.4 pillow-13.0.0 pluggy-1.7.0 pydantic-2.13.5 pydantic-core-2.46.5 pygments-2.21.0 pyparsing-3.3.3 pytest-9.1.1 python-dateutil-2.9.0.post0 referencing-0.37.0 regex-2026.11.25 rpds-py-2026.9.1 ruff-0.17.1 s3transfer-0.19.3 six-1.17.0 sympy-1.14.0 typing-inspection-0.4.5 typing_extensions-4.16.0 urllib3-2.8.0 websockets-17.4
     ```
 5. **Check Java version** \
-Note that we're setting up DynamoDB Local without Docker because we do not have sudo pervilages on the lab PCs. \
+Note that we're setting up DynamoDB Local without Docker because we do not have sudo privileges on school lab PCs. \
 **Command Input:**
     ```
     java -version
@@ -128,7 +129,7 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
     Setting java 17.0.13-tem as default.
     ```
 
-    Check Jave version again after download. \
+    Check Jave version again after installation. \
     **Command Input:**
     ```
     java -version
@@ -139,8 +140,8 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
     OpenJDK Runtime Environment Temurin-17.0.13+11 (build 17.0.13+11)
     OpenJDK 64-Bit Server VM Temurin-17.0.13+11 (build 17.0.13+11, mixed mode, sharing)
     ```
-    The important take away is that openjdk version, e.i. Java version is 17 or above. 
-5. **Setup for DynamoDB Local**
+    The important take away is that openjdk version (i.e. Java version) is 17 or above. 
+6. **Setup for DynamoDB Local**
     **Command Input:**
     ```
     mkdir -p ~/CS4411/dynamodb_local && cd ~/CS4411/dynamodb_local
@@ -152,8 +153,8 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
     ```
     DynamoDBLocal.jar  DynamoDBLocal_lib  LICENSE.txt  README.txt  THIRD-PARTY-LICENSES.txt  dynamodb_local_latest.zip  dynamodb_local_latest.zip.1
     ```
-    **Do not perceed if this doesn't match your output.** 
-6. **Run DynamoDB Local** \
+    **Do not proceed if this doesn't match your output.** 
+7. **Run DynamoDB Local** \
 **Command Input:**
     ```
     java "-Djava.library.path=./DynamoDBLocal_lib" -jar DynamoDBLocal.jar -inMemory -sharedDb
@@ -169,15 +170,15 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
     shouldDelayTransientStatuses:	false
     CorsParams:	null
     ```
-7. **Open a new terminal and setup enviourment paths** \
+8. **Open a New Terminal and Setup Environment Variables** \
 **Command Input:**
     ```
     cd ~/CS4411/CS4411Database2GroupProject/
     source .venv/bin/activate
     export DYNAMODB_ENDPOINT_URL="http://localhost:8000"
     ```
-    There's no sample output for this command. It does not output anything. 
-8. **Create the table and add demo data** \
+    There's no sample output. These commands doesn't print anything to console. 
+9. **Create the Table and Add Demo Data** \
 **Command Input:**
     ```
     python3 scripts/create_table.py
@@ -193,7 +194,7 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
     [0 votes] Haadi: Push new ideas to clients with DynamoDB Streams
         - Annie: Streams plus a WebSocket API Gateway
     ```
-9. **Run the tests** \
+10. **Run Tests** \
 **Command Input:**
     ```
     export REQUIRE_DYNAMODB_LOCAL="1"; pytest
@@ -217,7 +218,7 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
 
     ============================= 148 passed in 11.38s =============================
     ```
-10. **Run the Backend** \
+11. **Run Backend** \
 **Command Input:**
     ```
     python scripts/serve_local.py
@@ -226,7 +227,7 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
     ```
     INFO:websockets.server:server listening on 127.0.0.1:3001
     ```
-11. **Open a new terminal run the Frontend** \
+12. **Open a New Terminal and Run Frontend** \
 **Command Input:**
     ```
     cd ~/CS4411/CS4411Database2GroupProject
@@ -237,5 +238,4 @@ Note that we're setting up DynamoDB Local without Docker because we do not have 
     Serving HTTP on 127.0.0.1 port 8080 (http://127.0.0.1:8080/) ...
     ```
 
-Questions? Email `wwang939@uwo.ca` for setup support. 
-TODO: add some gitignore items for the new setup. 
+Questions? Email `wwang939@uwo.ca` for support. 
